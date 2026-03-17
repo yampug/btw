@@ -127,9 +127,12 @@ func NewApp(idx *search.Index, cfg *config.Config) App {
 		sb.SetProjectOnly(false)
 	}
 
+	input := NewSearchInput(theme)
+	input.SetDebounce(100 * time.Millisecond)
+
 	return App{
 		tabBar:         NewTabBar(theme),
-		input:          NewSearchInput(theme),
+		input:          input,
 		resultList:     NewResultList(theme),
 		statusBar:      sb,
 		filterMenu:     fm,
@@ -330,6 +333,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case TabChangedMsg:
 		a.tabBar.SetActive(msg.Tab)
+		if msg.Tab == model.TabText {
+			a.input.SetDebounce(250 * time.Millisecond)
+		} else {
+			a.input.SetDebounce(100 * time.Millisecond)
+		}
 		a.queryCursor = -1
 		a.resultList.SetLoading(true)
 		cmds = append(cmds, a.resultList.SpinnerTick(), a.triggerSearch())

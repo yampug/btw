@@ -106,10 +106,20 @@ func (s SearchInput) Focused() bool {
 	return s.input.Focused()
 }
 
+// SetDebounce sets the debounce duration.
+func (s *SearchInput) SetDebounce(d time.Duration) {
+	s.debounce = d
+}
+
 func (s SearchInput) Update(msg tea.Msg) (SearchInput, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "enter":
+			// Bypasses debounce and triggers immediately.
+			return s, func() tea.Msg {
+				return QueryChangedMsg{Query: s.query, Line: s.lineNum}
+			}
 		case "ctrl+u":
 			s.input.SetValue("")
 			s.parseValue()
