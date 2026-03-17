@@ -88,9 +88,12 @@ func main() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		if useZedFallback {
-			// If we tried zed because $EDITOR was empty and it failed,
-			// just print the path as a final fallback.
+		if os.IsNotExist(err) || (useZedFallback && err != nil) {
+			if useZedFallback {
+				fmt.Fprintf(os.Stderr, "error: 'zed' or $EDITOR not found. Please set your $EDITOR environment variable.\n")
+			} else {
+				fmt.Fprintf(os.Stderr, "error: editor '%s' not found. Please check your configuration or $EDITOR environment variable.\n", editor)
+			}
 			fmt.Println(chosen.FilePath)
 			return
 		}

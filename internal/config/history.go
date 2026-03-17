@@ -47,7 +47,10 @@ func LoadHistory() (*History, error) {
 	}
 	
 	if err := json.Unmarshal(data, h); err != nil {
-		return h, err
+		// Story 10.4: Corrupt history file -> back up and start fresh.
+		backupPath := path + ".bak"
+		_ = os.Rename(path, backupPath)
+		return h, nil
 	}
 
 	if h.QueryHistory == nil {

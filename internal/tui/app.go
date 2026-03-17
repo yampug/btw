@@ -1034,6 +1034,10 @@ func (a App) View() string {
 		return ""
 	}
 
+	if a.width < 40 || a.height < 10 {
+		return lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, "Terminal too small")
+	}
+
 	divider := lipgloss.NewStyle().
 		Foreground(a.theme.Divider).
 		Render(repeatChar("─", a.width-4))
