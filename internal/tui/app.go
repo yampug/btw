@@ -97,11 +97,24 @@ func (a App) Init() tea.Cmd {
 	return tea.Batch(a.input.Focus(), a.triggerSearch())
 }
 
+func isNavigationKey(msg tea.Msg) bool {
+	km, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return false
+	}
+	switch km.String() {
+	case "up", "down", "left", "right", "pgup", "pgdown", "home", "end", "ctrl+n", "ctrl+p", "ctrl+up", "ctrl+down":
+		return true
+	}
+	return false
+}
+
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Global keys and shortcuts.
 		switch msg.String() {
 		case "ctrl+f":
 			a.filterMenu.Toggle()
@@ -123,15 +136,31 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			if r, ok := a.resultList.Selected(); ok {
-				a.chosen = &r
-				return a, tea.Quit
+				// Special case: if it's a "more..." or header, it might switch tabs.
+				// ResultList.Update handles emitting TabChangedMsg.
+				// But we also need to allow opening real results.
+				if !r.IsHeader && !strings.HasPrefix(r.Name, " … more") {
+					a.chosen = &r
+					return a, tea.Quit
+				}
 			}
-			return a, nil
+		}
+
+		// Routing logic for focus behavior in Story 6.1.
+		// If it's a printable character and NOT a navigation key, and filter menu is NOT visible,
+		// always route it to the input field.
+		if !a.filterMenu.Visible() && isPrintable(msg) && !isNavigationKey(msg) {
+			var cmd tea.Cmd
+			a.input, cmd = a.input.Update(msg)
+			cmds = append(cmds, cmd)
+			// Also ensure input is focused (though it should already be).
+			cmds = append(cmds, a.input.Focus())
 		}
 	case tea.WindowSizeMsg:
 		a.layout(msg.Width, msg.Height)
 	case ResultsMsg:
-		a.resultList.SetItems(msg.Items)
+		// Persist cursor if results are just being updated during typing.
+		a.resultList.SetItems(msg.Items, false)
 		a.resultList.SetTotalMatched(msg.TotalMatched)
 	case TabChangedMsg:
 		a.tabBar.SetActive(msg.Tab)
@@ -157,13 +186,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.filterMenu, cmd = a.filterMenu.Update(msg)
 		cmds = append(cmds, cmd)
 	} else {
+		// Route messages to components if they haven't been handled by printable char logic.
+		// Navigation keys (up/down/etc) go to ResultList.
+		// Tab keys go to TabBar.
+		
 		if isTabKey(msg) {
 			a.tabBar, cmd = a.tabBar.Update(msg)
 			cmds = append(cmds, cmd)
 		}
 
-		a.input, cmd = a.input.Update(msg)
-		cmds = append(cmds, cmd)
+		// Only update input if it wasn't already updated by printable char logic above.
+		if !isPrintable(msg) || isNavigationKey(msg) {
+			a.input, cmd = a.input.Update(msg)
+			cmds = append(cmds, cmd)
+		}
 
 		a.resultList, cmd = a.resultList.Update(msg)
 		cmds = append(cmds, cmd)
@@ -181,6 +217,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	a.statusBar.SetCounts(sel, total)
 
 	return a, tea.Batch(cmds...)
+}
+
+// isPrintable returns true if the key message is a printable character.
+func isPrintable(msg tea.Msg) bool {
+	km, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return false
+	}
+	if km.Type == tea.KeyRunes {
+		return true
+	}
+	if km.String() == "space" {
+		return true
+	}
+	return false
 }
 
 // layout recalculates component sizes on terminal resize.

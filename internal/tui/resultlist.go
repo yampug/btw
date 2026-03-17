@@ -44,12 +44,23 @@ func (r *ResultList) SetSize(w, h int) {
 	r.height = h
 }
 
-// SetItems replaces the result list and resets the cursor.
-func (r *ResultList) SetItems(items []model.SearchResult) {
+// SetItems replaces the result list. If resetCursor is true, it resets the cursor to 0.
+func (r *ResultList) SetItems(items []model.SearchResult, resetCursor bool) {
 	r.items = items
-	r.cursor = 0
-	r.offset = 0
 	r.loading = false
+	if resetCursor {
+		r.cursor = 0
+		r.offset = 0
+	} else {
+		// Ensure cursor is still in bounds.
+		if len(r.items) == 0 {
+			r.cursor = 0
+			r.offset = 0
+		} else if r.cursor >= len(r.items) {
+			r.cursor = len(r.items) - 1
+		}
+		r.ensureVisible()
+	}
 }
 
 // SetTotalMatched stores the total match count (before truncation).
@@ -84,10 +95,14 @@ func (r ResultList) Update(msg tea.Msg) (ResultList, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "up", "k":
+		case "up", "k", "ctrl+p":
 			r.moveUp(1)
-		case "down", "j":
+		case "down", "j", "ctrl+n":
 			r.moveDown(1)
+		case "ctrl+up":
+			r.scrollUp(1)
+		case "ctrl+down":
+			r.scrollDown(1)
 		case "pgup":
 			r.moveUp(r.pageSize())
 		case "pgdown":
@@ -128,43 +143,81 @@ func (r ResultList) Update(msg tea.Msg) (ResultList, tea.Cmd) {
 }
 
 func (r *ResultList) moveUp(n int) {
+	if len(r.items) == 0 {
+		return
+	}
+
 	for i := 0; i < n; i++ {
+		prev := r.cursor
 		r.cursor--
 		if r.cursor < 0 {
-			r.cursor = 0
-			break
+			r.cursor = len(r.items) - 1
 		}
+		
+		// Skip headers.
 		if r.items[r.cursor].IsHeader {
-			// Skip header if possible, unless it's the first item.
-			if r.cursor > 0 {
-				r.cursor--
+			if r.cursor == 0 {
+				r.cursor = len(r.items) - 1
 			} else {
-				// If first item is header, we can't skip up.
-				// But usually we don't want to select headers.
-				// In "All" tab, first item IS a header.
-				// Let's allow selecting it if it's the only way, 
-				// but preferably we skip to the first real result.
+				r.cursor--
 			}
+		}
+
+		// If we're still on a header (e.g. two headers in a row, which shouldn't happen),
+		// or if we wrapped back to where we started and it's a header.
+		if r.items[r.cursor].IsHeader {
+			r.cursor = prev // Fallback
 		}
 	}
 	r.ensureVisible()
 }
 
 func (r *ResultList) moveDown(n int) {
+	if len(r.items) == 0 {
+		return
+	}
+
 	max := len(r.items) - 1
 	for i := 0; i < n; i++ {
+		prev := r.cursor
 		r.cursor++
 		if r.cursor > max {
-			r.cursor = max
-			break
+			r.cursor = 0
 		}
+		
+		// Skip headers.
 		if r.items[r.cursor].IsHeader {
-			if r.cursor < max {
+			if r.cursor == max {
+				r.cursor = 0
+			} else {
 				r.cursor++
 			}
 		}
+
+		// Fallback for edge cases.
+		if r.items[r.cursor].IsHeader {
+			r.cursor = prev
+		}
 	}
 	r.ensureVisible()
+}
+
+func (r *ResultList) scrollUp(n int) {
+	r.offset -= n
+	if r.offset < 0 {
+		r.offset = 0
+	}
+}
+
+func (r *ResultList) scrollDown(n int) {
+	maxOffset := len(r.items) - r.height
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	r.offset += n
+	if r.offset > maxOffset {
+		r.offset = maxOffset
+	}
 }
 
 func (r *ResultList) skipHeaderDown() {
