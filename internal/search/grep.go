@@ -144,7 +144,7 @@ func grepFileScanner(ctx context.Context, entry FileEntry, literal string, re *r
 	defer f.Close()
 
 	// Quick binary check on first 512 bytes.
-	header := make([]byte, 512)
+	header := make([]byte, 512)		
 	n, _ := f.Read(header)
 	if n > 0 {
 		for _, b := range header[:n] {
