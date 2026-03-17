@@ -1,4 +1,4 @@
-# btw — TUI Search Everywhere
+# btw
 
 `btw` is a fast, IntelliJ-inspired "Search Everywhere" tool for the terminal. It provides a cohesive interface to find files, symbols, classes, and text across your project with instantaneous fuzzy matching and asynchronous execution.
 
