@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -52,8 +51,6 @@ func main() {
 	}
 
 	if *noColor {
-		// Lipgloss/Bubble Tea usually respect NO_COLOR or termenv detection.
-		// Forcing it here for good measure if flags are explicitly used.
 		os.Setenv("NO_COLOR", "1")
 	}
 
@@ -106,17 +103,9 @@ func main() {
 		initState.ProjectOnly = &projOnly
 	}
 
-	rules := search.LoadIgnoreFiles(root)
-	if len(cfg.IgnorePatterns) > 0 {
-		rules.LoadPatterns(cfg.IgnorePatterns)
-	}
 	idx := search.NewIndex()
-	// Initial walk is done in App.Init() asynchronously for better UX on large repos,
-	// but cmd/bm also does a quick one to set things up?
-	// Actually, Story 10.3 says "non-blocking startup".
-	// Let's keep the RebuildFrom here but maybe it should be empty or fast.
-	// For now, satisfy the existing flow.
-	idx.RebuildFrom(context.Background(), root, rules, search.WalkOptions{}, nil)
+	idx.SetRoot(root)
+	// Non-blocking startup: Indexing is triggered in App.Init()
 
 	app := tui.NewApp(idx, cfg, initState)
 	p := tea.NewProgram(app, tea.WithAltScreen())

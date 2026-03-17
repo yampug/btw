@@ -57,6 +57,13 @@ func (idx *Index) Root() string {
 	return idx.root
 }
 
+// SetRoot sets the project root path.
+func (idx *Index) SetRoot(root string) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+	idx.root = root
+}
+
 // NewIndex returns an empty Index.
 func NewIndex() *Index {
 	return &Index{
