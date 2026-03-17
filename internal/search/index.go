@@ -3,7 +3,6 @@ package search
 import (
 	"context"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
@@ -105,8 +104,7 @@ type SearchOptions struct {
 }
 
 // Search returns ranked SearchResult entries matching the given options.
-// For now, uses simple case-insensitive substring matching + scoring.
-// The fuzzy matcher (Epic 4) will replace the matching logic.
+// Uses FuzzyMatch for matching and Score for contextual ranking.
 func (idx *Index) Search(opts SearchOptions) []model.SearchResult {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
@@ -115,7 +113,7 @@ func (idx *Index) Search(opts SearchOptions) []model.SearchResult {
 		opts.MaxResults = 100
 	}
 
-	query := strings.ToLower(opts.Query)
+	query := opts.Query
 
 	// Determine candidate set.
 	candidates := idx.candidates(opts)
@@ -123,32 +121,25 @@ func (idx *Index) Search(opts SearchOptions) []model.SearchResult {
 	var results []model.SearchResult
 	for _, i := range candidates {
 		entry := idx.files[i]
-		lowerName := strings.ToLower(entry.Name)
 
-		if query == "" {
-			// Empty query: return all candidates (most recent first handled by sort below).
-			results = append(results, idx.toResult(entry, 0, nil))
+		mr := FuzzyMatch(query, entry.Name)
+		if !mr.Matched {
+			// Also try matching against relative path.
+			mr = FuzzyMatch(query, entry.RelPath)
+		}
+		if !mr.Matched {
 			continue
 		}
 
-		score, ranges := matchSimple(query, lowerName, entry.Name)
-		if score <= 0 {
-			// Also try matching against relative path.
-			lowerRel := strings.ToLower(entry.RelPath)
-			score, ranges = matchSimple(query, lowerRel, entry.RelPath)
+		params := ScoreParams{
+			RelPath: entry.RelPath,
+			Name:    entry.Name,
 		}
-		if score > 0 {
-			results = append(results, idx.toResult(entry, score, ranges))
-		}
+		finalScore := Score(mr, params)
+		results = append(results, idx.toResult(entry, finalScore, mr.Ranges))
 	}
 
-	// Sort by score descending, then name ascending.
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].Score != results[j].Score {
-			return results[i].Score > results[j].Score
-		}
-		return results[i].Name < results[j].Name
-	})
+	RankResults(results)
 
 	if len(results) > opts.MaxResults {
 		results = results[:opts.MaxResults]
@@ -184,49 +175,6 @@ func (idx *Index) candidates(opts SearchOptions) []int {
 	}
 }
 
-// matchSimple does case-insensitive substring and prefix matching, returning
-// a score and match ranges. This is a placeholder until the fuzzy matcher lands.
-func matchSimple(query, lowerCandidate, originalCandidate string) (int, []model.MatchRange) {
-	if query == lowerCandidate {
-		// Exact match.
-		return 1000, []model.MatchRange{{Start: 0, End: len([]rune(originalCandidate))}}
-	}
-
-	if strings.HasPrefix(lowerCandidate, query) {
-		// Prefix match.
-		return 800, []model.MatchRange{{Start: 0, End: len([]rune(query))}}
-	}
-
-	pos := strings.Index(lowerCandidate, query)
-	if pos >= 0 {
-		// Substring match.
-		runePos := len([]rune(lowerCandidate[:pos]))
-		return 500, []model.MatchRange{{Start: runePos, End: runePos + len([]rune(query))}}
-	}
-
-	// Subsequence match.
-	runes := []rune(lowerCandidate)
-	queryRunes := []rune(query)
-	var ranges []model.MatchRange
-	qi := 0
-	for ci := 0; ci < len(runes) && qi < len(queryRunes); ci++ {
-		if runes[ci] == queryRunes[qi] {
-			ranges = append(ranges, model.MatchRange{Start: ci, End: ci + 1})
-			qi++
-		}
-	}
-	if qi == len(queryRunes) {
-		// Score based on how spread out the matches are (tighter = better).
-		spread := ranges[len(ranges)-1].End - ranges[0].Start
-		score := 300 - spread
-		if score < 1 {
-			score = 1
-		}
-		return score, ranges
-	}
-
-	return 0, nil
-}
 
 func (idx *Index) toResult(entry FileEntry, score int, ranges []model.MatchRange) model.SearchResult {
 	icon := defaultIcon
