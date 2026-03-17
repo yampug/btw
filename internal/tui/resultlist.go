@@ -94,11 +94,27 @@ func (r ResultList) Update(msg tea.Msg) (ResultList, tea.Cmd) {
 			r.moveDown(r.pageSize())
 		case "home":
 			r.cursor = 0
+			r.skipHeaderDown()
 			r.offset = 0
 		case "end":
 			if len(r.items) > 0 {
 				r.cursor = len(r.items) - 1
+				r.skipHeaderUp()
 				r.ensureVisible()
+			}
+		case "enter":
+			if r.cursor < len(r.items) {
+				item := r.items[r.cursor]
+				if item.IsHeader && item.SectionTab != model.TabAll {
+					return r, func() tea.Msg {
+						return TabChangedMsg{Tab: item.SectionTab}
+					}
+				}
+				if strings.HasPrefix(item.Name, " … more") {
+					return r, func() tea.Msg {
+						return TabChangedMsg{Tab: item.SectionTab}
+					}
+				}
 			}
 		}
 	case spinner.TickMsg:
@@ -112,23 +128,59 @@ func (r ResultList) Update(msg tea.Msg) (ResultList, tea.Cmd) {
 }
 
 func (r *ResultList) moveUp(n int) {
-	r.cursor -= n
-	if r.cursor < 0 {
-		r.cursor = 0
+	for i := 0; i < n; i++ {
+		r.cursor--
+		if r.cursor < 0 {
+			r.cursor = 0
+			break
+		}
+		if r.items[r.cursor].IsHeader {
+			// Skip header if possible, unless it's the first item.
+			if r.cursor > 0 {
+				r.cursor--
+			} else {
+				// If first item is header, we can't skip up.
+				// But usually we don't want to select headers.
+				// In "All" tab, first item IS a header.
+				// Let's allow selecting it if it's the only way, 
+				// but preferably we skip to the first real result.
+			}
+		}
 	}
 	r.ensureVisible()
 }
 
 func (r *ResultList) moveDown(n int) {
-	r.cursor += n
 	max := len(r.items) - 1
-	if max < 0 {
-		max = 0
-	}
-	if r.cursor > max {
-		r.cursor = max
+	for i := 0; i < n; i++ {
+		r.cursor++
+		if r.cursor > max {
+			r.cursor = max
+			break
+		}
+		if r.items[r.cursor].IsHeader {
+			if r.cursor < max {
+				r.cursor++
+			}
+		}
 	}
 	r.ensureVisible()
+}
+
+func (r *ResultList) skipHeaderDown() {
+	if r.cursor < len(r.items) && r.items[r.cursor].IsHeader {
+		if r.cursor < len(r.items)-1 {
+			r.cursor++
+		}
+	}
+}
+
+func (r *ResultList) skipHeaderUp() {
+	if r.cursor >= 0 && r.cursor < len(r.items) && r.items[r.cursor].IsHeader {
+		if r.cursor > 0 {
+			r.cursor--
+		}
+	}
 }
 
 func (r *ResultList) ensureVisible() {
@@ -177,13 +229,6 @@ func (r ResultList) View() string {
 		rows = append(rows, r.renderRow(item, idx == r.cursor))
 	}
 
-	// Show "more..." indicator when results are truncated.
-	truncated := r.totalMatched > len(r.items)
-	if truncated && end >= len(r.items) && len(rows) < r.height {
-		moreText := fmt.Sprintf("  … %d more results", r.totalMatched-len(r.items))
-		rows = append(rows, lipgloss.NewStyle().Foreground(dimColor).Italic(true).Render(moreText))
-	}
-
 	// Pad remaining height with empty lines.
 	for len(rows) < r.height {
 		rows = append(rows, "")
@@ -204,6 +249,10 @@ func (r ResultList) View() string {
 }
 
 func (r ResultList) renderRow(item model.SearchResult, selected bool) string {
+	if item.IsHeader {
+		return r.renderHeader(item)
+	}
+
 	contentWidth := r.width - 5 // icon(3) + gap(1) + scroll indicator(1)
 	if contentWidth < 10 {
 		contentWidth = 10
@@ -245,6 +294,24 @@ func (r ResultList) renderRow(item model.SearchResult, selected bool) string {
 	}
 
 	return row
+}
+
+func (r ResultList) renderHeader(item model.SearchResult) string {
+	headerStyle := lipgloss.NewStyle().
+		Foreground(accentColor).
+		Bold(true)
+
+	ruleStyle := lipgloss.NewStyle().
+		Foreground(dimColor)
+
+	text := " ── " + item.Name + " "
+	ruleLen := r.width - lipgloss.Width(text) - 1
+	if ruleLen < 0 {
+		ruleLen = 0
+	}
+	rule := repeatChar("─", ruleLen)
+
+	return headerStyle.Render(text) + ruleStyle.Render(rule)
 }
 
 func (r ResultList) highlightName(name string, ranges []model.MatchRange, selected bool) string {

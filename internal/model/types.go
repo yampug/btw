@@ -76,4 +76,6 @@ type SearchResult struct {
 	MatchRanges []MatchRange // Character ranges that matched the query
 	Icon        string       // Nerd Font icon or emoji
 	IconColor   string       // Lip Gloss color for the icon
+	IsHeader    bool         // If true, this item is a section header
+	SectionTab  Tab          // Tab to switch to when clicking 'more...' or the header
 }

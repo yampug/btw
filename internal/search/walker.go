@@ -44,7 +44,7 @@ func Walk(ctx context.Context, root string, rules *IgnoreRules, opts WalkOptions
 	var wg sync.WaitGroup
 
 	// Seed with the root directory.
-	dirs <- walkJob{dir: root, depth: 0, symlink: false}
+	dirs <- walkJob{dir: root, depth: 0, symlink: false, rules: rules}
 
 	// Track in-flight directory jobs so we know when to close dirs.
 	var inflight sync.WaitGroup
@@ -56,7 +56,7 @@ func Walk(ctx context.Context, root string, rules *IgnoreRules, opts WalkOptions
 		go func() {
 			defer wg.Done()
 			for job := range dirs {
-				walkDir(ctx, root, job, rules, opts, out, dirs, &inflight)
+				walkDir(ctx, root, job, opts, out, dirs, &inflight)
 			}
 		}()
 	}
@@ -76,13 +76,13 @@ type walkJob struct {
 	dir     string
 	depth   int
 	symlink bool // true if this dir was reached via a symlink
+	rules   *IgnoreRules
 }
 
 func walkDir(
 	ctx context.Context,
 	root string,
 	job walkJob,
-	rules *IgnoreRules,
 	opts WalkOptions,
 	out chan<- FileEntry,
 	dirs chan<- walkJob,
@@ -101,10 +101,13 @@ func walkDir(
 		return
 	}
 
+	currentRules := job.rules
 	// Check for nested .gitignore.
 	for _, e := range entries {
 		if e.Name() == ".gitignore" && !e.IsDir() {
-			rules.LoadNested(root, filepath.Join(job.dir, ".gitignore"))
+			// Copy rules before modifying so we don't affect other branches.
+			currentRules = currentRules.Clone()
+			currentRules.LoadNested(root, filepath.Join(job.dir, ".gitignore"))
 		}
 	}
 
@@ -150,17 +153,32 @@ func walkDir(
 		}
 
 		// Check ignore rules.
-		if rules.IsIgnored(relPath, isDir) {
+		if currentRules.IsIgnored(relPath, isDir) {
 			continue
 		}
 
 		if isDir {
 			inflight.Add(1)
+			newJob := walkJob{
+				dir:     absPath,
+				depth:   job.depth + 1,
+				symlink: isSymlink || job.symlink,
+				rules:   currentRules,
+			}
 			select {
-			case dirs <- walkJob{dir: absPath, depth: job.depth + 1, symlink: isSymlink || job.symlink}:
+			case dirs <- newJob:
 			case <-ctx.Done():
 				inflight.Done()
 				return
+			default:
+				// Buffer is full. Spawn a goroutine to avoid deadlocking the worker pool.
+				go func(j walkJob) {
+					select {
+					case dirs <- j:
+					case <-ctx.Done():
+						inflight.Done()
+					}
+				}(newJob)
 			}
 			continue
 		}

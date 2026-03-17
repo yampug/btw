@@ -134,6 +134,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.resultList.SetItems(msg.Items)
 		a.resultList.SetTotalMatched(msg.TotalMatched)
 	case TabChangedMsg:
+		a.tabBar.SetActive(msg.Tab)
 		a.resultList.SetLoading(true)
 		cmds = append(cmds, a.resultList.SpinnerTick(), a.triggerSearch())
 	case QueryChangedMsg:
@@ -208,6 +209,8 @@ func (a App) triggerSearch() tea.Cmd {
 
 	tab := a.tabBar.Active()
 	switch tab {
+	case model.TabAll:
+		return a.triggerAllSearch()
 	case model.TabText:
 		return a.triggerGrepSearch()
 	case model.TabSymbols:
@@ -218,6 +221,98 @@ func (a App) triggerSearch() tea.Cmd {
 		return a.triggerActionSearch()
 	default:
 		return a.triggerFileSearch()
+	}
+}
+
+func (a App) triggerAllSearch() tea.Cmd {
+	query := a.input.Value()
+	includeHidden := !a.statusBar.ProjectOnly()
+	idx := a.index
+	extFilters := a.filterMenu.SelectedExtensions()
+
+	return func() tea.Msg {
+		var allItems []model.SearchResult
+
+		// Files
+		filesRs := idx.Search(search.SearchOptions{
+			Query:         query,
+			Tab:           model.TabFiles,
+			ExtFilters:    extFilters,
+			MaxResults:    5,
+			IncludeHidden: includeHidden,
+		})
+		if len(filesRs.Items) > 0 {
+			allItems = append(allItems, model.SearchResult{
+				Name:       "Files",
+				IsHeader:   true,
+				SectionTab: model.TabFiles,
+			})
+			allItems = append(allItems, filesRs.Items...)
+			if filesRs.TotalMatched > 5 {
+				allItems = append(allItems, model.SearchResult{
+					Name:       fmt.Sprintf("  … more Files (%d total)", filesRs.TotalMatched),
+					SectionTab: model.TabFiles,
+				})
+			}
+		}
+
+		// Classes
+		classesRs := idx.SearchClasses(query, 5, includeHidden)
+		if len(classesRs.Items) > 0 {
+			allItems = append(allItems, model.SearchResult{
+				Name:       "Classes",
+				IsHeader:   true,
+				SectionTab: model.TabClasses,
+			})
+			allItems = append(allItems, classesRs.Items...)
+			if classesRs.TotalMatched > 5 {
+				allItems = append(allItems, model.SearchResult{
+					Name:       fmt.Sprintf("  … more Classes (%d total)", classesRs.TotalMatched),
+					SectionTab: model.TabClasses,
+				})
+			}
+		}
+
+		// Symbols
+		symbolsRs := idx.SearchSymbols(query, 5, includeHidden)
+		if len(symbolsRs.Items) > 0 {
+			allItems = append(allItems, model.SearchResult{
+				Name:       "Symbols",
+				IsHeader:   true,
+				SectionTab: model.TabSymbols,
+			})
+			allItems = append(allItems, symbolsRs.Items...)
+			if symbolsRs.TotalMatched > 5 {
+				allItems = append(allItems, model.SearchResult{
+					Name:       fmt.Sprintf("  … more Symbols (%d total)", symbolsRs.TotalMatched),
+					SectionTab: model.TabSymbols,
+				})
+			}
+		}
+
+		// Actions
+		actions := a.searchActions(query)
+		if len(actions) > 0 {
+			totalActions := len(actions)
+			limit := 5
+			if limit > totalActions {
+				limit = totalActions
+			}
+			allItems = append(allItems, model.SearchResult{
+				Name:       "Actions",
+				IsHeader:   true,
+				SectionTab: model.TabActions,
+			})
+			allItems = append(allItems, actions[:limit]...)
+			if totalActions > 5 {
+				allItems = append(allItems, model.SearchResult{
+					Name:       fmt.Sprintf("  … more Actions (%d total)", totalActions),
+					SectionTab: model.TabActions,
+				})
+			}
+		}
+
+		return ResultsMsg{Items: allItems, TotalMatched: len(allItems)}
 	}
 }
 

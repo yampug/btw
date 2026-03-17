@@ -27,6 +27,7 @@ var DefaultExcludes = map[string]bool{
 // DetectRoot walks up from startDir looking for a project root marker.
 // Returns the first directory containing a marker, or startDir if none found.
 func DetectRoot(startDir string) string {
+	home, _ := os.UserHomeDir()
 	dir, err := filepath.Abs(startDir)
 	if err != nil {
 		return startDir
@@ -35,25 +36,42 @@ func DetectRoot(startDir string) string {
 	for {
 		for _, marker := range rootMarkers {
 			if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+				// Special case: if we found a marker in the home directory,
+				// be extra careful. Only .git is usually a good indicator.
+				// package.json/go.mod in home are often noise.
+				if dir == home && marker != ".git" {
+					continue
+				}
 				return dir
 			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Reached filesystem root without finding a marker.
-			abs, err := filepath.Abs(startDir)
-			if err != nil {
-				return startDir
-			}
-			return abs
+			break
 		}
 		dir = parent
 	}
+
+	abs, err := filepath.Abs(startDir)
+	if err != nil {
+		return startDir
+	}
+	return abs
 }
 
 // IgnoreRules holds the set of patterns parsed from .gitignore / .bmignore files.
 type IgnoreRules struct {
 	patterns []ignorePattern
+}
+
+// Clone returns a deep copy of the ignore rules.
+func (ir *IgnoreRules) Clone() *IgnoreRules {
+	if ir == nil {
+		return &IgnoreRules{}
+	}
+	newPatterns := make([]ignorePattern, len(ir.patterns))
+	copy(newPatterns, ir.patterns)
+	return &IgnoreRules{patterns: newPatterns}
 }
 
 type ignorePattern struct {

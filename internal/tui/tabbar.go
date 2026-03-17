@@ -37,6 +37,11 @@ func (t *TabBar) SetWidth(w int) {
 	t.width = w
 }
 
+// SetActive sets the active tab.
+func (t *TabBar) SetActive(tab model.Tab) {
+	t.active = tab
+}
+
 func (t TabBar) Update(msg tea.Msg) (TabBar, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
