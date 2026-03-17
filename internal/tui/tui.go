@@ -1,29 +1,27 @@
 package tui
 
 import (
-	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 // Adaptive colors that work in both dark and light terminal themes.
 var (
-	titleColor  = lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}
 	borderColor = lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}
-	bgColor     = lipgloss.AdaptiveColor{Light: "#F5F5F5", Dark: "#1A1A2E"}
-	fgColor     = lipgloss.AdaptiveColor{Light: "#1A1A2E", Dark: "#EEEEEE"}
 )
 
 // Model is the top-level Bubble Tea model for Boomerang.
 type Model struct {
 	width  int
 	height int
+	tabBar TabBar
 }
 
 // New returns an initialized Model.
 func New() Model {
-	return Model{}
+	return Model{
+		tabBar: NewTabBar(),
+	}
 }
 
 func (m Model) Init() tea.Cmd {
@@ -40,8 +38,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.tabBar.SetWidth(m.width)
+	case TabChangedMsg:
+		// Will be used to re-trigger search in later stories.
 	}
-	return m, nil
+
+	var cmd tea.Cmd
+	m.tabBar, cmd = m.tabBar.Update(msg)
+	return m, cmd
 }
 
 func (m Model) View() string {
@@ -49,20 +53,15 @@ func (m Model) View() string {
 		return ""
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(titleColor)
+	tabBarView := m.tabBar.View()
 
-	boxStyle := lipgloss.NewStyle().
+	containerStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
-		Background(bgColor).
-		Foreground(fgColor).
-		Padding(1, 3).
-		Align(lipgloss.Center)
+		Width(m.width - 2).
+		Height(m.height - 2)
 
-	title := titleStyle.Render("Boomerang")
-	box := boxStyle.Render(fmt.Sprintf("%s\n\nPress q or Esc to quit", title))
+	content := tabBarView
 
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+	return containerStyle.Render(content)
 }
