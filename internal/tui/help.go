@@ -128,7 +128,7 @@ func (h HelpOverlay) View() string {
 		Bold(true).
 		Foreground(h.theme.TabActive).
 		Padding(0, 1).
-		Render("Boomerang Help")
+		Render("btw Help")
 
 	footer := lipgloss.NewStyle().
 		Foreground(h.theme.DimForeground).

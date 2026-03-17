@@ -32,21 +32,21 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: bm [flags] [initial-query]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: btw [flags] [initial-query]\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  bm                     Launch with empty search\n")
-		fmt.Fprintf(os.Stderr, "  bm main.go             Launch with \"main.go\" pre-filled\n")
-		fmt.Fprintf(os.Stderr, "  bm -t files main       Launch on Files tab searching \"main\"\n")
-		fmt.Fprintf(os.Stderr, "  bm -f go NewMatcher    Launch filtering .go files, searching \"NewMatcher\"\n")
-		fmt.Fprintf(os.Stderr, "  bm -p ~/projects/foo   Search in a specific directory\n")
+		fmt.Fprintf(os.Stderr, "  btw                     Launch with empty search\n")
+		fmt.Fprintf(os.Stderr, "  btw main.go             Launch with \"main.go\" pre-filled\n")
+		fmt.Fprintf(os.Stderr, "  btw -t files main       Launch on Files tab searching \"main\"\n")
+		fmt.Fprintf(os.Stderr, "  btw -f go NewMatcher    Launch filtering .go files, searching \"NewMatcher\"\n")
+		fmt.Fprintf(os.Stderr, "  btw -p ~/projects/foo   Search in a specific directory\n")
 	}
 
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("bm version %s\n", version)
+		fmt.Printf("btw version %s\n", version)
 		return
 	}
 

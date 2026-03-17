@@ -141,6 +141,9 @@ func NewApp(idx *search.Index, cfg *config.Config, init InitialState) App {
 	}
 
 	sb := NewStatusBar(theme)
+	if idx != nil {
+		sb.SetRoot(idx.Root())
+	}
 	if cfg.DefaultScope == "all" {
 		sb.SetProjectOnly(false)
 	}
@@ -628,6 +631,15 @@ func (a App) triggerAllSearch(id SearchID) tea.Cmd {
 		first := true
 		totalMatched := 0
 
+		// Special case: empty query shows Recent Files only.
+		if strings.TrimSpace(query) == "" && a.history != nil {
+			recents := a.history.RecentFiles
+			if len(recents) > 0 {
+				// idx.Search with empty query already boosts and sorts by mod time.
+				// We'll let it handle the heavy lifting and just use the header.
+			}
+		}
+
 		// Files
 		filesRs := idx.Search(ctx, search.SearchOptions{
 			Query:         query,
@@ -644,8 +656,12 @@ func (a App) triggerAllSearch(id SearchID) tea.Cmd {
 
 		var filesItems []model.SearchResult
 		if len(filesRs.Items) > 0 {
+			header := "Files"
+			if strings.TrimSpace(query) == "" {
+				header = "Recent Files"
+			}
 			filesItems = append(filesItems, model.SearchResult{
-				Name:       "Files",
+				Name:       header,
 				IsHeader:   true,
 				SectionTab: model.TabFiles,
 			})
@@ -657,8 +673,18 @@ func (a App) triggerAllSearch(id SearchID) tea.Cmd {
 				})
 			}
 			totalMatched += len(filesItems)
-			ch <- ResultsMsg{ID: id, Items: filesItems, TotalMatched: totalMatched, Append: !first, Done: false, Ch: ch}
+			ch <- ResultsMsg{ID: id, Items: filesItems, TotalMatched: totalMatched, Append: false, Done: false, Ch: ch}
 			first = false
+		} else {
+			// Clear the list if this is the first (and only) section so far.
+			ch <- ResultsMsg{ID: id, Items: nil, TotalMatched: 0, Append: false, Done: false, Ch: ch}
+			first = false
+		}
+
+		// If query is empty, we only show Recent Files (Story 5.6).
+		if strings.TrimSpace(query) == "" {
+			ch <- ResultsMsg{ID: id, Append: true, Done: true}
+			return
 		}
 
 		// Classes
@@ -681,7 +707,7 @@ func (a App) triggerAllSearch(id SearchID) tea.Cmd {
 				})
 			}
 			totalMatched += len(classesItems)
-			ch <- ResultsMsg{ID: id, Items: classesItems, TotalMatched: totalMatched, Append: !first, Done: false, Ch: ch}
+			ch <- ResultsMsg{ID: id, Items: classesItems, TotalMatched: totalMatched, Append: true, Done: false, Ch: ch}
 			first = false
 		}
 
@@ -705,7 +731,7 @@ func (a App) triggerAllSearch(id SearchID) tea.Cmd {
 				})
 			}
 			totalMatched += len(symbolsItems)
-			ch <- ResultsMsg{ID: id, Items: symbolsItems, TotalMatched: totalMatched, Append: !first, Done: false, Ch: ch}
+			ch <- ResultsMsg{ID: id, Items: symbolsItems, TotalMatched: totalMatched, Append: true, Done: false, Ch: ch}
 			first = false
 		}
 
@@ -731,15 +757,15 @@ func (a App) triggerAllSearch(id SearchID) tea.Cmd {
 				})
 			}
 			totalMatched += len(actionsItems)
-			ch <- ResultsMsg{ID: id, Items: actionsItems, TotalMatched: totalMatched, Append: !first, Done: false, Ch: ch}
+			ch <- ResultsMsg{ID: id, Items: actionsItems, TotalMatched: totalMatched, Append: true, Done: false, Ch: ch}
 			first = false
 		}
 
 		if first {
-			// No results at all.
 			ch <- ResultsMsg{ID: id, Items: nil, TotalMatched: 0, Append: false, Done: true}
 		} else {
-			ch <- ResultsMsg{ID: id, Done: true}
+			// Final signal, use Append: true to avoid clearing results already sent.
+			ch <- ResultsMsg{ID: id, Append: true, Done: true}
 		}
 	}()
 

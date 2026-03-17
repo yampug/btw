@@ -118,6 +118,7 @@ func (idx *Index) RebuildFrom(ctx context.Context, root string, rules *IgnoreRul
 	idx.mu.Unlock()
 	ch := Walk(ctx, root, rules, opts)
 	idx.BuildFrom(ch, progress)
+	idx.ExtractSymbols()
 }
 
 // Len returns the number of indexed files.
@@ -213,6 +214,7 @@ func (idx *Index) Search(ctx context.Context, opts SearchOptions) SearchResultSe
 			r := idx.toResult(entry, score, nil)
 			r.Line = pq.LineNum
 			results = append(results, r)
+			matchCount++
 			continue
 		}
 
@@ -257,9 +259,13 @@ func (idx *Index) Search(ctx context.Context, opts SearchOptions) SearchResultSe
 	return SearchResultSet{Items: results, TotalMatched: totalMatched}
 }
 
-// isVendored returns true if any segment of the relative path is in DefaultExcludes.
+// isVendored returns true if any directory segment of the relative path is in DefaultExcludes.
 func isVendored(relPath string) bool {
-	segments := strings.Split(relPath, string(filepath.Separator))
+	dir := filepath.Dir(relPath)
+	if dir == "." {
+		return false
+	}
+	segments := strings.Split(dir, string(filepath.Separator))
 	for _, s := range segments {
 		if DefaultExcludes[s] {
 			return true

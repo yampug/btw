@@ -6,19 +6,19 @@ vars:
 
 tasks:
   build:
-    desc: Build the bm binary with version info
+    desc: Build the btw binary with version info
     cmds:
-      - go build -ldflags '{{.LDFLAGS}}' -o bm ./cmd/bm
+      - go build -ldflags '{{.LDFLAGS}}' -o btw ./cmd/btw
 
   install:
-    desc: Install bm to $GOPATH/bin
+    desc: Install btw to $GOPATH/bin
     cmds:
-      - go install -ldflags '{{.LDFLAGS}}' ./cmd/bm
+      - go install -ldflags '{{.LDFLAGS}}' ./cmd/btw
 
   run:
-    desc: Build and run bm
+    desc: Build and run btw
     cmds:
-      - go run ./cmd/bm {{.CLI_ARGS}}
+      - go run ./cmd/btw {{.CLI_ARGS}}
 
   test:
     desc: Run all tests with race detection
@@ -38,5 +38,5 @@ tasks:
   clean:
     desc: Remove binary and clean cache
     cmds:
-      - rm -f bm
+      - rm -f btw
       - go clean

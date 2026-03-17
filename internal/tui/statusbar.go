@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -27,6 +29,7 @@ type StatusBar struct {
 	message     string
 	messageID   int // to avoid clearing a newer message
 	theme       Theme
+	root        string // formatted project root
 }
 
 // NewStatusBar returns an initialized StatusBar with the given theme.
@@ -46,6 +49,15 @@ func (s *StatusBar) SetWidth(w int) {
 func (s *StatusBar) SetCounts(selected, total int) {
 	s.selected = selected
 	s.total = total
+}
+
+// SetRoot sets and formats the project root path (using ~ for home).
+func (s *StatusBar) SetRoot(root string) {
+	home, err := os.UserHomeDir()
+	if err == nil && strings.HasPrefix(root, home) {
+		root = "~" + strings.TrimPrefix(root, home)
+	}
+	s.root = root
 }
 
 // SetMessage sets a temporary status message that clears after a delay.
@@ -116,11 +128,14 @@ func (s StatusBar) View() string {
 		message = " " + messageStyle.Render(s.message)
 	}
 
-	// Right side: Result count.
+	// Right side: Root + Result count.
 	countText := fmt.Sprintf("%d/%d results", s.selected, s.total)
+	if s.root != "" {
+		countText = fmt.Sprintf("%s  ·  %s", s.root, countText)
+	}
 	countStyle := lipgloss.NewStyle().
 		Foreground(s.theme.DimForeground)
-	right := countStyle.Render(countText)
+	right := countStyle.Render(countText + " ")
 
 	// Fill gap between parts.
 	gap := s.width - lipgloss.Width(left) - lipgloss.Width(message) - lipgloss.Width(right)
