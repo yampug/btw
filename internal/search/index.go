@@ -44,6 +44,7 @@ type Index struct {
 	files     []FileEntry
 	nameIndex map[string][]int // lowercase filename → indices
 	extIndex  map[string][]int // extension (e.g. ".go") → indices
+	symbols   []Symbol         // populated by ExtractSymbols
 }
 
 // NewIndex returns an empty Index.

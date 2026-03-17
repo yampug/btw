@@ -203,10 +203,14 @@ func (a App) triggerSearch() tea.Cmd {
 	}
 
 	tab := a.tabBar.Active()
-	if tab == model.TabText {
+	switch tab {
+	case model.TabText:
 		return a.triggerGrepSearch()
+	case model.TabSymbols:
+		return a.triggerSymbolSearch()
+	default:
+		return a.triggerFileSearch()
 	}
-	return a.triggerFileSearch()
 }
 
 func (a App) triggerFileSearch() tea.Cmd {
@@ -224,6 +228,17 @@ func (a App) triggerFileSearch() tea.Cmd {
 			MaxResults:    100,
 			IncludeHidden: includeHidden,
 		})
+		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
+	}
+}
+
+func (a App) triggerSymbolSearch() tea.Cmd {
+	idx := a.index
+	query := a.input.Value()
+	includeHidden := !a.statusBar.ProjectOnly()
+
+	return func() tea.Msg {
+		rs := idx.SearchSymbols(query, 100, includeHidden)
 		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
 	}
 }
