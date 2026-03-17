@@ -1,0 +1,22 @@
+version: "3"
+
+tasks:
+  build:
+    desc: Build the bm binary
+    cmds:
+      - go build -o bm ./cmd/bm
+
+  run:
+    desc: Build and run bm
+    cmds:
+      - go run ./cmd/bm
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./...
+
+  lint:
+    desc: Run linter
+    cmds:
+      - golangci-lint run ./...
