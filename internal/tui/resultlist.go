@@ -87,6 +87,10 @@ func (r ResultList) Cursor() int {
 func (r ResultList) Len() int {
 	return len(r.items)
 }
+// RemoveFromHistoryMsg is emitted when the user wants to remove a result from history.
+type RemoveFromHistoryMsg struct {
+	FilePath string
+}
 
 func (r ResultList) Update(msg tea.Msg) (ResultList, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -94,6 +98,15 @@ func (r ResultList) Update(msg tea.Msg) (ResultList, tea.Cmd) {
 		switch msg.String() {
 		case "up", "k", "ctrl+p":
 			r.moveUp(1)
+		case "delete":
+			if r.cursor < len(r.items) {
+				item := r.items[r.cursor]
+				if item.FilePath != "" {
+					return r, func() tea.Msg {
+						return RemoveFromHistoryMsg{FilePath: item.FilePath}
+					}
+				}
+			}
 		case "down", "j", "ctrl+n":
 			r.moveDown(1)
 		case "ctrl+up":

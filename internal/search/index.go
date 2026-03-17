@@ -3,9 +3,11 @@ package search
 import (
 	"context"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
+	"github.com/bob/boomerang/internal/config"
 	"github.com/bob/boomerang/internal/model"
 )
 
@@ -116,6 +118,7 @@ type SearchOptions struct {
 	MaxResults    int      // 0 means no limit
 	IncludeHidden bool     // include hidden files in results
 	ProjectOnly   bool     // exclude vendor, node_modules, etc.
+	History       *config.History // for score boosting
 }
 
 // SearchResultSet holds results plus metadata for the UI.
@@ -167,7 +170,11 @@ func (idx *Index) Search(opts SearchOptions) SearchResultSet {
 
 		// Empty query: return all candidates (sorted by mod time later).
 		if strings.TrimSpace(pq.Query) == "" {
-			r := idx.toResult(entry, 0, nil)
+			score := 0
+			if opts.History != nil {
+				score = opts.History.GetBoost(entry.Path)
+			}
+			r := idx.toResult(entry, score, nil)
 			r.Line = pq.LineNum
 			results = append(results, r)
 			continue
@@ -191,14 +198,17 @@ func (idx *Index) Search(opts SearchOptions) SearchResultSet {
 			Name:    entry.Name,
 		}
 		finalScore := Score(mr, params)
+		if opts.History != nil {
+			finalScore += opts.History.GetBoost(entry.Path)
+		}
 		r := idx.toResult(entry, finalScore, mr.Ranges)
 		r.Line = pq.LineNum
 		results = append(results, r)
 	}
 
-	// For empty queries, sort by modification time (most recent first).
+	// For empty queries, sort by score (history boost) then modification time.
 	if strings.TrimSpace(pq.Query) == "" {
-		idx.sortByModTime(results)
+		idx.sortByScoreAndModTime(results)
 	} else {
 		RankResults(results)
 	}
@@ -222,7 +232,7 @@ func isVendored(relPath string) bool {
 }
 
 // SearchSymbols returns ranked symbols matching the query.
-func (idx *Index) SearchSymbols(query string, maxResults int, includeHidden bool, projectOnly bool) SearchResultSet {
+func (idx *Index) SearchSymbols(query string, maxResults int, includeHidden bool, projectOnly bool, history *config.History) SearchResultSet {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
@@ -244,7 +254,11 @@ func (idx *Index) SearchSymbols(query string, maxResults int, includeHidden bool
 		}
 
 		if query == "" {
-			results = append(results, SymbolToResult(s, 0, nil))
+			score := 0
+			if history != nil {
+				score = history.GetBoost(s.FilePath)
+			}
+			results = append(results, SymbolToResult(s, score, nil))
 			continue
 		}
 
@@ -253,7 +267,11 @@ func (idx *Index) SearchSymbols(query string, maxResults int, includeHidden bool
 			continue
 		}
 
-		results = append(results, SymbolToResult(s, mr.Score, mr.Ranges))
+		score := mr.Score
+		if history != nil {
+			score += history.GetBoost(s.FilePath)
+		}
+		results = append(results, SymbolToResult(s, score, mr.Ranges))
 	}
 
 	RankResults(results)
@@ -265,7 +283,7 @@ func (idx *Index) SearchSymbols(query string, maxResults int, includeHidden bool
 }
 
 // SearchClasses returns only type-level symbols matching the query.
-func (idx *Index) SearchClasses(query string, maxResults int, includeHidden bool, projectOnly bool) SearchResultSet {
+func (idx *Index) SearchClasses(query string, maxResults int, includeHidden bool, projectOnly bool, history *config.History) SearchResultSet {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
@@ -285,7 +303,11 @@ func (idx *Index) SearchClasses(query string, maxResults int, includeHidden bool
 		}
 
 		if query == "" {
-			results = append(results, SymbolToResult(s, 0, nil))
+			score := 0
+			if history != nil {
+				score = history.GetBoost(s.FilePath)
+			}
+			results = append(results, SymbolToResult(s, score, nil))
 			continue
 		}
 
@@ -294,7 +316,11 @@ func (idx *Index) SearchClasses(query string, maxResults int, includeHidden bool
 			continue
 		}
 
-		results = append(results, SymbolToResult(s, mr.Score, mr.Ranges))
+		score := mr.Score
+		if history != nil {
+			score += history.GetBoost(s.FilePath)
+		}
+		results = append(results, SymbolToResult(s, score, mr.Ranges))
 	}
 
 	RankResults(results)
@@ -305,20 +331,20 @@ func (idx *Index) SearchClasses(query string, maxResults int, includeHidden bool
 	return SearchResultSet{Items: results, TotalMatched: totalMatched}
 }
 
-// sortByModTime sorts results by the underlying file's modification time (newest first).
-func (idx *Index) sortByModTime(results []model.SearchResult) {
+// sortByScoreAndModTime sorts results by score (desc) then modification time (newest first).
+func (idx *Index) sortByScoreAndModTime(results []model.SearchResult) {
 	// Build a map from FilePath → ModTime for the sort.
 	modTimes := make(map[string]int64, len(idx.files))
 	for _, f := range idx.files {
 		modTimes[f.Path] = f.ModTime.UnixNano()
 	}
 
-	n := len(results)
-	for i := 1; i < n; i++ {
-		for j := i; j > 0 && modTimes[results[j].FilePath] > modTimes[results[j-1].FilePath]; j-- {
-			results[j], results[j-1] = results[j-1], results[j]
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
 		}
-	}
+		return modTimes[results[i].FilePath] > modTimes[results[j].FilePath]
+	})
 }
 
 // candidatesFiltered returns the set of file indices to search over,

@@ -73,6 +73,7 @@ type App struct {
 	showHidden     bool
 	cfg            *config.Config
 	theme          Theme
+	history        *config.History
 }
 
 // NewApp returns an initialized App with the given file index and config.
@@ -80,6 +81,8 @@ func NewApp(idx *search.Index, cfg *config.Config) App {
 	if cfg == nil {
 		cfg = config.NewDefaultConfig()
 	}
+
+	hist, _ := config.LoadHistory()
 
 	themeName := cfg.Theme
 	if themeName == "auto" {
@@ -114,6 +117,7 @@ func NewApp(idx *search.Index, cfg *config.Config) App {
 		showHidden:     cfg.ShowHidden,
 		cfg:            cfg,
 		theme:          theme,
+		history:        hist,
 	}
 }
 
@@ -236,6 +240,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// But we also need to allow opening real results.
 				if !r.IsHeader && !strings.HasPrefix(r.Name, " … more") {
 					a.chosen = &r
+					if r.FilePath != "" && a.history != nil {
+						a.history.Add(r.FilePath)
+						_ = a.history.Save()
+					}
 					return a, tea.Quit
 				}
 			}
@@ -272,6 +280,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.input.SetFilter(badge)
 		a.resultList.SetLoading(true)
 		cmds = append(cmds, a.resultList.SpinnerTick(), a.triggerSearch())
+	case RemoveFromHistoryMsg:
+		if a.history != nil {
+			a.history.Remove(msg.FilePath)
+			_ = a.history.Save()
+			cmds = append(cmds, a.triggerSearch())
+		}
 	}
 
 	var cmd tea.Cmd
@@ -433,6 +447,7 @@ func (a App) triggerAllSearch() tea.Cmd {
 			MaxResults:    limit,
 			IncludeHidden: includeHidden,
 			ProjectOnly:   projectOnly,
+			History:       a.history,
 		})
 		if len(filesRs.Items) > 0 {
 			allItems = append(allItems, model.SearchResult{
@@ -450,7 +465,7 @@ func (a App) triggerAllSearch() tea.Cmd {
 		}
 
 		// Classes
-		classesRs := idx.SearchClasses(query, limit, includeHidden, projectOnly)
+		classesRs := idx.SearchClasses(query, limit, includeHidden, projectOnly, a.history)
 		if len(classesRs.Items) > 0 {
 			allItems = append(allItems, model.SearchResult{
 				Name:       "Classes",
@@ -467,7 +482,7 @@ func (a App) triggerAllSearch() tea.Cmd {
 		}
 
 		// Symbols
-		symbolsRs := idx.SearchSymbols(query, limit, includeHidden, projectOnly)
+		symbolsRs := idx.SearchSymbols(query, limit, includeHidden, projectOnly, a.history)
 		if len(symbolsRs.Items) > 0 {
 			allItems = append(allItems, model.SearchResult{
 				Name:       "Symbols",
@@ -525,6 +540,7 @@ func (a App) triggerFileSearch() tea.Cmd {
 			MaxResults:    a.cfg.MaxResults,
 			IncludeHidden: includeHidden,
 			ProjectOnly:   projectOnly,
+			History:       a.history,
 		})
 		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
 	}
@@ -537,7 +553,7 @@ func (a App) triggerSymbolSearch() tea.Cmd {
 	projectOnly := a.statusBar.ProjectOnly()
 
 	return func() tea.Msg {
-		rs := idx.SearchSymbols(query, a.cfg.MaxResults, includeHidden, projectOnly)
+		rs := idx.SearchSymbols(query, a.cfg.MaxResults, includeHidden, projectOnly, a.history)
 		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
 	}
 }
@@ -549,7 +565,7 @@ func (a App) triggerClassSearch() tea.Cmd {
 	projectOnly := a.statusBar.ProjectOnly()
 
 	return func() tea.Msg {
-		rs := idx.SearchClasses(query, a.cfg.MaxResults, includeHidden, projectOnly)
+		rs := idx.SearchClasses(query, a.cfg.MaxResults, includeHidden, projectOnly, a.history)
 		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
 	}
 }
