@@ -208,6 +208,8 @@ func (a App) triggerSearch() tea.Cmd {
 		return a.triggerGrepSearch()
 	case model.TabSymbols:
 		return a.triggerSymbolSearch()
+	case model.TabClasses:
+		return a.triggerClassSearch()
 	default:
 		return a.triggerFileSearch()
 	}
@@ -239,6 +241,17 @@ func (a App) triggerSymbolSearch() tea.Cmd {
 
 	return func() tea.Msg {
 		rs := idx.SearchSymbols(query, 100, includeHidden)
+		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
+	}
+}
+
+func (a App) triggerClassSearch() tea.Cmd {
+	idx := a.index
+	query := a.input.Value()
+	includeHidden := !a.statusBar.ProjectOnly()
+
+	return func() tea.Msg {
+		rs := idx.SearchClasses(query, 100, includeHidden)
 		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
 	}
 }

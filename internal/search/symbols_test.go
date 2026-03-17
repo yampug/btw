@@ -455,6 +455,104 @@ func TestSearchSymbols_SkipsHidden(t *testing.T) {
 	}
 }
 
+func TestSearchClasses_FiltersTypeSymbols(t *testing.T) {
+	idx := buildSymbolTestIndex(t, map[string]string{
+		"main.go": `package main
+
+type User struct {
+	Name string
+}
+
+func (u *User) GetName() string {
+	return u.Name
+}
+
+interface Error {
+	Error() string
+}
+
+const MaxUsers = 100
+
+var globalVar = "test"
+`,
+	})
+
+	// SearchClasses should only return type-level symbols
+	results := idx.SearchClasses("", 100, false).Items
+	
+	// Should find User (struct) and Error (interface), but not functions, consts, or vars
+	if len(results) != 2 {
+		t.Errorf("expected 2 type symbols, got %d", len(results))
+	}
+	
+	foundUser := false
+	foundError := false
+	for _, r := range results {
+		if contains(r.Name, "User") {
+			foundUser = true
+		}
+		if contains(r.Name, "Error") {
+			foundError = true
+		}
+		// Ensure no function/const/var symbols slip through
+		if contains(r.Name, "GetName") || contains(r.Name, "MaxUsers") || contains(r.Name, "globalVar") {
+			t.Errorf("SearchClasses should not return non-type symbols, found: %s", r.Name)
+		}
+	}
+	
+	if !foundUser {
+		t.Error("expected to find User struct")
+	}
+	if !foundError {
+		t.Error("expected to find Error interface")
+	}
+}
+
+func TestSearchClasses_FuzzyMatch(t *testing.T) {
+	idx := buildSymbolTestIndex(t, map[string]string{
+		"types.go": `package main
+
+type SearchResult struct {
+	Name string
+}
+
+type Matcher struct {
+	pattern string
+}
+
+type SearchProvider interface {
+	Search(query string) []SearchResult
+}
+`,
+	})
+
+	results := idx.SearchSymbols("SR", 100, false).Items
+	if len(results) != 1 || !contains(results[0].Name, "SearchResult") {
+		t.Errorf("expected to find SearchResult with query 'SR', got %v", results)
+	}
+}
+
+func TestSearchClasses_EmptyQuery(t *testing.T) {
+	idx := buildSymbolTestIndex(t, map[string]string{
+		"types.go": `package main
+
+type A struct {}
+type B struct {}
+type C struct {}
+`,
+	})
+
+	results := idx.SearchClasses("", 100, false).Items
+	if len(results) != 3 {
+		t.Errorf("expected 3 type symbols for empty query, got %d", len(results))
+	}
+	
+	// Should be sorted alphabetically for empty query
+	if results[0].Name != "type A struct {}" {
+		t.Errorf("expected first result to be 'type A struct {}', got %s", results[0].Name)
+	}
+}
+
 func TestExtractSymbols_LineNumbers(t *testing.T) {
 	idx := buildSymbolTestIndex(t, map[string]string{
 		"main.go": `package main

@@ -59,6 +59,7 @@ func init() {
 		{regexp.MustCompile(`^func\s+\([^)]*\)\s+(\w+)\s*\(`), SymbolFunc, 1},
 		{regexp.MustCompile(`^func\s+(\w+)\s*\(`), SymbolFunc, 1},
 		{regexp.MustCompile(`^type\s+(\w+)\s`), SymbolType, 1},
+		{regexp.MustCompile(`^interface\s+(\w+)\s`), SymbolType, 1},
 		{regexp.MustCompile(`^const\s+(\w+)\s`), SymbolConstant, 1},
 		{regexp.MustCompile(`^var\s+(\w+)\s`), SymbolVariable, 1},
 	}
@@ -267,6 +268,66 @@ func (idx *Index) SearchSymbols(query string, maxResults int, includeHidden bool
 
 	var results []model.SearchResult
 	for _, sym := range idx.symbols {
+		if !includeHidden && strings.HasPrefix(sym.FileName, ".") {
+			continue
+		}
+
+		if query == "" {
+			results = append(results, symbolToResult(sym, 0, nil))
+			continue
+		}
+
+		// Fuzzy match against symbol name.
+		mr := FuzzyMatch(query, sym.Name)
+		if !mr.Matched {
+			// Fallback: try matching against the signature.
+			mr = FuzzyMatch(query, sym.Signature)
+		}
+		if !mr.Matched {
+			continue
+		}
+
+		params := ScoreParams{
+			RelPath: sym.RelPath,
+			Name:    sym.Name,
+		}
+		score := Score(mr, params)
+		r := symbolToResult(sym, score, mr.Ranges)
+		results = append(results, r)
+	}
+
+	// Sort: empty query → alphabetical, otherwise by score.
+	if query == "" {
+		sortSymbolsAlpha(results)
+	} else {
+		RankResults(results)
+	}
+
+	totalMatched := len(results)
+	if len(results) > maxResults {
+		results = results[:maxResults]
+	}
+	return SearchResultSet{Items: results, TotalMatched: totalMatched}
+}
+
+// SearchClasses finds type-level symbols (classes, structs, interfaces, enums) matching the query.
+func (idx *Index) SearchClasses(query string, maxResults int, includeHidden bool) SearchResultSet {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	if maxResults <= 0 {
+		maxResults = 100
+	}
+
+	query = strings.TrimSpace(query)
+
+	var results []model.SearchResult
+	for _, sym := range idx.symbols {
+		// Filter to only type-level symbols (classes, structs, interfaces, enums)
+		if sym.Kind != SymbolType {
+			continue
+		}
+
 		if !includeHidden && strings.HasPrefix(sym.FileName, ".") {
 			continue
 		}
