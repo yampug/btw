@@ -105,6 +105,8 @@ type SearchOptions struct {
 
 // Search returns ranked SearchResult entries matching the given options.
 // Uses FuzzyMatch for matching and Score for contextual ranking.
+// Queries containing `/` are handled as path-aware matches.
+// A `:N` suffix is stripped and stored as LineNum on results.
 func (idx *Index) Search(opts SearchOptions) []model.SearchResult {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
@@ -113,7 +115,7 @@ func (idx *Index) Search(opts SearchOptions) []model.SearchResult {
 		opts.MaxResults = 100
 	}
 
-	query := opts.Query
+	pq := ParseQuery(opts.Query)
 
 	// Determine candidate set.
 	candidates := idx.candidates(opts)
@@ -122,10 +124,14 @@ func (idx *Index) Search(opts SearchOptions) []model.SearchResult {
 	for _, i := range candidates {
 		entry := idx.files[i]
 
-		mr := FuzzyMatch(query, entry.Name)
-		if !mr.Matched {
-			// Also try matching against relative path.
-			mr = FuzzyMatch(query, entry.RelPath)
+		var mr MatchResult
+		if pq.IsPath {
+			mr = PathMatch(pq.Query, entry.RelPath)
+		} else {
+			mr = FuzzyMatch(pq.Query, entry.Name)
+			if !mr.Matched {
+				mr = FuzzyMatch(pq.Query, entry.RelPath)
+			}
 		}
 		if !mr.Matched {
 			continue
@@ -136,7 +142,9 @@ func (idx *Index) Search(opts SearchOptions) []model.SearchResult {
 			Name:    entry.Name,
 		}
 		finalScore := Score(mr, params)
-		results = append(results, idx.toResult(entry, finalScore, mr.Ranges))
+		r := idx.toResult(entry, finalScore, mr.Ranges)
+		r.Line = pq.LineNum
+		results = append(results, r)
 	}
 
 	RankResults(results)
