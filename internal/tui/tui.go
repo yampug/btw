@@ -15,37 +15,67 @@ type Model struct {
 	width  int
 	height int
 	tabBar TabBar
+	input  SearchInput
 }
 
 // New returns an initialized Model.
 func New() Model {
 	return Model{
 		tabBar: NewTabBar(),
+		input:  NewSearchInput(),
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return nil
+	return m.input.Focus()
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "esc":
+		case "esc", "ctrl+c":
 			return m, tea.Quit
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.tabBar.SetWidth(m.width)
+		m.input.SetWidth(m.width - 2) // account for border
 	case TabChangedMsg:
 		// Will be used to re-trigger search in later stories.
+	case QueryChangedMsg:
+		// Will be used to trigger search in later stories.
 	}
 
 	var cmd tea.Cmd
-	m.tabBar, cmd = m.tabBar.Update(msg)
-	return m, cmd
+
+	// Only forward non-number keys to the tab bar when input is focused,
+	// so typing numbers goes into the search field.
+	if isTabKey(msg) {
+		m.tabBar, cmd = m.tabBar.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	m.input, cmd = m.input.Update(msg)
+	cmds = append(cmds, cmd)
+
+	return m, tea.Batch(cmds...)
+}
+
+// isTabKey returns true if the message is a key that should go to the tab bar.
+func isTabKey(msg tea.Msg) bool {
+	km, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return true // non-key messages go everywhere
+	}
+	switch km.String() {
+	case "tab", "shift+tab":
+		return true
+	}
+	return false
 }
 
 func (m Model) View() string {
@@ -54,6 +84,11 @@ func (m Model) View() string {
 	}
 
 	tabBarView := m.tabBar.View()
+	inputView := m.input.View()
+
+	divider := lipgloss.NewStyle().
+		Foreground(lipgloss.AdaptiveColor{Light: "#CCCCCC", Dark: "#444444"}).
+		Render(repeatChar("─", m.width-4))
 
 	containerStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -61,7 +96,18 @@ func (m Model) View() string {
 		Width(m.width - 2).
 		Height(m.height - 2)
 
-	content := tabBarView
+	content := tabBarView + "\n" + divider + "\n" + inputView
 
 	return containerStyle.Render(content)
+}
+
+func repeatChar(ch string, n int) string {
+	if n < 0 {
+		n = 0
+	}
+	out := make([]byte, 0, n*len(ch))
+	for i := 0; i < n; i++ {
+		out = append(out, ch...)
+	}
+	return string(out)
 }
