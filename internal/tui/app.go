@@ -85,6 +85,14 @@ func (sc *searchCanceler) Set(id SearchID, cancel context.CancelFunc) {
 	sc.cancel = cancel
 }
 
+// InitialState defines the initial UI state passed from CLI flags.
+type InitialState struct {
+	Query       string
+	Tab         model.Tab
+	Extensions  []string
+	ProjectOnly *bool // nil means use config default
+}
+
 // App is the top-level Bubble Tea model composing all TUI components.
 type App struct {
 	width          int
@@ -107,7 +115,7 @@ type App struct {
 }
 
 // NewApp returns an initialized App with the given file index and config.
-func NewApp(idx *search.Index, cfg *config.Config) App {
+func NewApp(idx *search.Index, cfg *config.Config, init InitialState) App {
 	if cfg == nil {
 		cfg = config.NewDefaultConfig()
 	}
@@ -128,17 +136,38 @@ func NewApp(idx *search.Index, cfg *config.Config) App {
 	if idx != nil {
 		fm.SetExtensions(idx.Extensions())
 	}
+	if len(init.Extensions) > 0 {
+		fm.SetSelected(init.Extensions)
+	}
 
 	sb := NewStatusBar(theme)
 	if cfg.DefaultScope == "all" {
 		sb.SetProjectOnly(false)
 	}
+	if init.ProjectOnly != nil {
+		sb.SetProjectOnly(*init.ProjectOnly)
+	}
+
+	tb := NewTabBar(theme)
+	tb.SetActive(init.Tab)
 
 	input := NewSearchInput(theme)
-	input.SetDebounce(100 * time.Millisecond)
+	if init.Tab == model.TabText {
+		input.SetDebounce(250 * time.Millisecond)
+	} else {
+		input.SetDebounce(100 * time.Millisecond)
+	}
+	if init.Query != "" {
+		input.SetValue(init.Query)
+	}
+	
+	// Apply filter badge to input if filters are pre-applied.
+	if len(init.Extensions) > 0 {
+		input.SetFilter(fm.BadgeText())
+	}
 
 	return App{
-		tabBar:         NewTabBar(theme),
+		tabBar:         tb,
 		input:          input,
 		resultList:     NewResultList(theme),
 		statusBar:      sb,
@@ -394,12 +423,24 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 
-	// When help overlay is visible, any key closes it.
+	// When help overlay is visible, handle it.
 	if a.helpOverlay.Visible() {
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if km, ok := msg.(tea.KeyMsg); ok {
+			s := km.String()
+			if s == "esc" || s == "?" {
+				a.helpOverlay.Toggle()
+				return a, nil
+			}
+			// Any other key also closes help, but let's allow scrolling first.
+			if s == "up" || s == "down" || s == "pgup" || s == "pgdown" {
+				a.helpOverlay, cmd = a.helpOverlay.Update(msg)
+				return a, cmd
+			}
 			a.helpOverlay.Toggle()
 			return a, nil
 		}
+		a.helpOverlay, cmd = a.helpOverlay.Update(msg)
+		return a, cmd
 	}
 
 	// When filter menu is visible, route keys there instead of other components.
@@ -494,6 +535,7 @@ func (a *App) layout(w, h int) {
 		listH = 1
 	}
 	a.resultList.SetSize(innerW, listH)
+	a.helpOverlay.SetSize(w-10, h-4)
 }
 
 func (a App) refreshIndex() tea.Cmd {

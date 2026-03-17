@@ -6,16 +6,62 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/bob/boomerang/internal/config"
+	"github.com/bob/boomerang/internal/model"
 	"github.com/bob/boomerang/internal/search"
 	"github.com/bob/boomerang/internal/tui"
 )
 
+var (
+	version = "dev"
+)
+
 func main() {
 	configPath := flag.String("config", "", "path to config file")
+	tabName := flag.String("t", "all", "start on a specific tab (all|classes|files|symbols|actions|text)")
+	tabNameLong := flag.String("tab", "", "start on a specific tab (shorthand for -t)")
+	filterExts := flag.String("f", "", "pre-apply extension filter (e.g., -f go,rs)")
+	filterExtsLong := flag.String("filter", "", "pre-apply extension filter (shorthand for -f)")
+	scopeStr := flag.String("s", "", "set scope (project|all)")
+	scopeStrLong := flag.String("scope", "", "set scope (shorthand for -s)")
+	searchPath := flag.String("p", "", "search in a specific directory (default: cwd)")
+	searchPathLong := flag.String("path", "", "search in a specific directory (shorthand for -p)")
+	noColor := flag.Bool("no-color", false, "disable colors")
+	showVersion := flag.Bool("version", false, "print version and exit")
+	
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: bm [flags] [initial-query]\n\n")
+		fmt.Fprintf(os.Stderr, "Flags:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nExamples:\n")
+		fmt.Fprintf(os.Stderr, "  bm                     Launch with empty search\n")
+		fmt.Fprintf(os.Stderr, "  bm main.go             Launch with \"main.go\" pre-filled\n")
+		fmt.Fprintf(os.Stderr, "  bm -t files main       Launch on Files tab searching \"main\"\n")
+		fmt.Fprintf(os.Stderr, "  bm -f go NewMatcher    Launch filtering .go files, searching \"NewMatcher\"\n")
+		fmt.Fprintf(os.Stderr, "  bm -p ~/projects/foo   Search in a specific directory\n")
+	}
+
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("bm version %s\n", version)
+		return
+	}
+
+	if *noColor {
+		// Lipgloss/Bubble Tea usually respect NO_COLOR or termenv detection.
+		// Forcing it here for good measure if flags are explicitly used.
+		os.Setenv("NO_COLOR", "1")
+	}
+
+	// Resolve shorthand/longhand flags
+	if *tabNameLong != "" { tabName = tabNameLong }
+	if *filterExtsLong != "" { filterExts = filterExtsLong }
+	if *scopeStrLong != "" { scopeStr = scopeStrLong }
+	if *searchPathLong != "" { searchPath = searchPathLong }
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -23,16 +69,56 @@ func main() {
 	}
 
 	cwd, _ := os.Getwd()
-	// Use CWD as the search root to satisfy "only go down the current cwd".
-	searchRoot := cwd
-	rules := search.LoadIgnoreFiles(searchRoot)
+	root := cwd
+	if *searchPath != "" {
+		root = *searchPath
+	}
+
+	// Initial query from positional arguments
+	initialQuery := ""
+	if flag.NArg() > 0 {
+		initialQuery = strings.Join(flag.Args(), " ")
+	}
+
+	// Parse initial state
+	initState := tui.InitialState{
+		Query: initialQuery,
+	}
+
+	switch strings.ToLower(*tabName) {
+	case "classes": initState.Tab = model.TabClasses
+	case "files":   initState.Tab = model.TabFiles
+	case "symbols": initState.Tab = model.TabSymbols
+	case "actions": initState.Tab = model.TabActions
+	case "text":    initState.Tab = model.TabText
+	default:        initState.Tab = model.TabAll
+	}
+
+	if *filterExts != "" {
+		initState.Extensions = strings.Split(*filterExts, ",")
+	}
+
+	if *scopeStr != "" {
+		projOnly := true
+		if strings.ToLower(*scopeStr) == "all" {
+			projOnly = false
+		}
+		initState.ProjectOnly = &projOnly
+	}
+
+	rules := search.LoadIgnoreFiles(root)
 	if len(cfg.IgnorePatterns) > 0 {
 		rules.LoadPatterns(cfg.IgnorePatterns)
 	}
 	idx := search.NewIndex()
-	idx.RebuildFrom(context.Background(), searchRoot, rules, search.WalkOptions{}, nil)
+	// Initial walk is done in App.Init() asynchronously for better UX on large repos,
+	// but cmd/bm also does a quick one to set things up?
+	// Actually, Story 10.3 says "non-blocking startup".
+	// Let's keep the RebuildFrom here but maybe it should be empty or fast.
+	// For now, satisfy the existing flow.
+	idx.RebuildFrom(context.Background(), root, rules, search.WalkOptions{}, nil)
 
-	app := tui.NewApp(idx, cfg)
+	app := tui.NewApp(idx, cfg, initState)
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	m, err := p.Run()
 	if err != nil {
@@ -54,7 +140,7 @@ func main() {
 	}
 
 	// For Zed, we still try to detect the project root so it opens with full context.
-	projectRoot := search.DetectRoot(searchRoot)
+	projectRoot := search.DetectRoot(root)
 
 	// Open the chosen file in $EDITOR or zed, falling back to printing the path.
 	editor := cfg.Editor

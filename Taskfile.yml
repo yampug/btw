@@ -1,22 +1,42 @@
-version: "3"
+version: '3'
+
+vars:
+  VERSION: {sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"}
+  LDFLAGS: "-X main.version={{.VERSION}}"
 
 tasks:
   build:
-    desc: Build the bm binary
+    desc: Build the bm binary with version info
     cmds:
-      - go build -o bm ./cmd/bm
+      - go build -ldflags '{{.LDFLAGS}}' -o bm ./cmd/bm
+
+  install:
+    desc: Install bm to $GOPATH/bin
+    cmds:
+      - go install -ldflags '{{.LDFLAGS}}' ./cmd/bm
 
   run:
     desc: Build and run bm
     cmds:
-      - go run ./cmd/bm
+      - go run ./cmd/bm {{.CLI_ARGS}}
 
   test:
-    desc: Run all tests
+    desc: Run all tests with race detection
     cmds:
-      - go test ./...
+      - go test ./... -race -cover
 
   lint:
-    desc: Run linter
+    desc: Run golangci-lint
     cmds:
       - golangci-lint run ./...
+
+  bench:
+    desc: Run benchmark tests
+    cmds:
+      - go test ./internal/search/... -bench=. -benchmem
+
+  clean:
+    desc: Remove binary and clean cache
+    cmds:
+      - rm -f bm
+      - go clean

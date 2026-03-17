@@ -60,6 +60,22 @@ func (f *FilterMenu) Toggle() {
 	}
 }
 
+// SetSelected explicitly sets the selected extensions.
+func (f *FilterMenu) SetSelected(exts []string) {
+	f.selected = make(map[string]bool)
+	for _, ext := range exts {
+		if !strings.HasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+		f.selected[ext] = true
+	}
+}
+
+// ClearSelected clears all selected extensions.
+func (f *FilterMenu) ClearSelected() {
+	f.selected = make(map[string]bool)
+}
+
 // SelectedExtensions returns the list of checked extensions.
 func (f FilterMenu) SelectedExtensions() []string {
 	var exts []string
