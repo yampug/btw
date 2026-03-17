@@ -12,17 +12,19 @@ var (
 
 // Model is the top-level Bubble Tea model for Boomerang.
 type Model struct {
-	width  int
-	height int
-	tabBar TabBar
-	input  SearchInput
+	width      int
+	height     int
+	tabBar     TabBar
+	input      SearchInput
+	resultList ResultList
 }
 
 // New returns an initialized Model.
 func New() Model {
 	return Model{
-		tabBar: NewTabBar(),
-		input:  NewSearchInput(),
+		tabBar:     NewTabBar(),
+		input:      NewSearchInput(),
+		resultList: NewResultList(),
 	}
 }
 
@@ -44,6 +46,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.tabBar.SetWidth(m.width)
 		m.input.SetWidth(m.width - 2) // account for border
+		// 2 border + 1 tabbar + 1 divider + 1 input + 1 divider = 6 lines overhead
+		listHeight := m.height - 6
+		if listHeight < 1 {
+			listHeight = 1
+		}
+		m.resultList.SetSize(m.width-2, listHeight)
 	case TabChangedMsg:
 		// Will be used to re-trigger search in later stories.
 	case QueryChangedMsg:
@@ -60,6 +68,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	m.input, cmd = m.input.Update(msg)
+	cmds = append(cmds, cmd)
+
+	m.resultList, cmd = m.resultList.Update(msg)
 	cmds = append(cmds, cmd)
 
 	return m, tea.Batch(cmds...)
@@ -96,7 +107,10 @@ func (m Model) View() string {
 		Width(m.width - 2).
 		Height(m.height - 2)
 
-	content := tabBarView + "\n" + divider + "\n" + inputView
+	divider2 := divider
+	resultView := m.resultList.View()
+
+	content := tabBarView + "\n" + divider + "\n" + inputView + "\n" + divider2 + "\n" + resultView
 
 	return containerStyle.Render(content)
 }
