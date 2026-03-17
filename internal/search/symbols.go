@@ -370,6 +370,15 @@ func (idx *Index) SearchClasses(query string, maxResults int, includeHidden bool
 	return SearchResultSet{Items: results, TotalMatched: totalMatched}
 }
 
+// SearchActions finds actions matching the query using fuzzy matching.
+// This is a placeholder that will be implemented by the TUI layer since actions
+// are not stored in the search index.
+func (idx *Index) SearchActions(query string, maxResults int) SearchResultSet {
+	// This method is intentionally left empty as actions are handled by the TUI.
+	// The TUI will call ActionRegistry.SearchActions directly.
+	return SearchResultSet{Items: []model.SearchResult{}, TotalMatched: 0}
+}
+
 func sortSymbolsAlpha(results []model.SearchResult) {
 	n := len(results)
 	for i := 1; i < n; i++ {

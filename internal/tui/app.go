@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -55,16 +57,17 @@ func (sc *searchCanceler) Set(cancel context.CancelFunc) {
 
 // App is the top-level Bubble Tea model composing all TUI components.
 type App struct {
-	width        int
-	height       int
-	tabBar       TabBar
-	input        SearchInput
-	resultList   ResultList
-	statusBar    StatusBar
-	filterMenu   FilterMenu
-	index        *search.Index
-	searchCancel *searchCanceler
-	chosen       *model.SearchResult // set when user presses Enter
+	width          int
+	height         int
+	tabBar         TabBar
+	input          SearchInput
+	resultList     ResultList
+	statusBar      StatusBar
+	filterMenu     FilterMenu
+	index          *search.Index
+	searchCancel   *searchCanceler
+	chosen         *model.SearchResult // set when user presses Enter
+	actionRegistry *ActionRegistry
 }
 
 // NewApp returns an initialized App with the given file index.
@@ -74,13 +77,14 @@ func NewApp(idx *search.Index) App {
 		fm.SetExtensions(idx.Extensions())
 	}
 	return App{
-		tabBar:       NewTabBar(),
-		input:        NewSearchInput(),
-		resultList:   NewResultList(),
-		statusBar:    NewStatusBar(),
-		filterMenu:   fm,
-		index:        idx,
-		searchCancel: &searchCanceler{},
+		tabBar:         NewTabBar(),
+		input:          NewSearchInput(),
+		resultList:     NewResultList(),
+		statusBar:      NewStatusBar(),
+		filterMenu:     fm,
+		index:          idx,
+		searchCancel:   &searchCanceler{},
+		actionRegistry: NewActionRegistry(),
 	}
 }
 
@@ -210,6 +214,8 @@ func (a App) triggerSearch() tea.Cmd {
 		return a.triggerSymbolSearch()
 	case model.TabClasses:
 		return a.triggerClassSearch()
+	case model.TabActions:
+		return a.triggerActionSearch()
 	default:
 		return a.triggerFileSearch()
 	}
@@ -254,6 +260,58 @@ func (a App) triggerClassSearch() tea.Cmd {
 		rs := idx.SearchClasses(query, 100, includeHidden)
 		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
 	}
+}
+
+func (a App) triggerActionSearch() tea.Cmd {
+	query := a.input.Value()
+
+	return func() tea.Msg {
+		results := a.searchActions(query)
+		return ResultsMsg{Items: results, TotalMatched: len(results)}
+	}
+}
+
+func (a App) searchActions(query string) []model.SearchResult {
+	query = strings.TrimSpace(query)
+	
+	var results []model.SearchResult
+	for _, action := range a.actionRegistry.Actions() {
+		if query == "" {
+			results = append(results, ActionToSearchResult(action))
+			continue
+		}
+
+		// Fuzzy match against action name and description
+		nameMatch := search.FuzzyMatch(query, action.Name)
+		if nameMatch.Matched {
+			r := ActionToSearchResult(action)
+			r.MatchRanges = nameMatch.Ranges
+			r.Score = 1000 // High score for name matches
+			results = append(results, r)
+			continue
+		}
+
+		descMatch := search.FuzzyMatch(query, action.Description)
+		if descMatch.Matched {
+			r := ActionToSearchResult(action)
+			r.MatchRanges = descMatch.Ranges
+			r.Score = 500 // Lower score for description matches
+			results = append(results, r)
+		}
+	}
+
+	// Sort by score (descending), then by name (ascending)
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		return strings.ToLower(results[i].Name) < strings.ToLower(results[j].Name)
+	})
+
+	if len(results) > 100 {
+		results = results[:100]
+	}
+	return results
 }
 
 func (a App) triggerGrepSearch() tea.Cmd {
