@@ -67,11 +67,13 @@ func NewIndex() *Index {
 
 // BuildFrom consumes all entries from the channel in a single pass and builds
 // the index. This blocks until the channel is closed.
-func (idx *Index) BuildFrom(ch <-chan FileEntry) {
+// It calls the progress callback periodically if provided.
+func (idx *Index) BuildFrom(ch <-chan FileEntry, progress func(count int)) {
 	var files []FileEntry
 	nameIdx := make(map[string][]int)
 	extIdx := make(map[string][]int)
 
+	count := 0
 	for entry := range ch {
 		i := len(files)
 		files = append(files, entry)
@@ -83,6 +85,15 @@ func (idx *Index) BuildFrom(ch <-chan FileEntry) {
 			ext := strings.ToLower(entry.Ext)
 			extIdx[ext] = append(extIdx[ext], i)
 		}
+
+		count++
+		if progress != nil && count%1000 == 0 {
+			progress(count)
+		}
+	}
+
+	if progress != nil {
+		progress(count)
 	}
 
 	idx.mu.Lock()
@@ -94,12 +105,12 @@ func (idx *Index) BuildFrom(ch <-chan FileEntry) {
 
 // RebuildFrom rebuilds the index from a new walk, replacing existing data.
 // Can be called while readers are using the old index (swap is atomic under lock).
-func (idx *Index) RebuildFrom(ctx context.Context, root string, rules *IgnoreRules, opts WalkOptions) {
+func (idx *Index) RebuildFrom(ctx context.Context, root string, rules *IgnoreRules, opts WalkOptions, progress func(int)) {
 	idx.mu.Lock()
 	idx.root = root
 	idx.mu.Unlock()
 	ch := Walk(ctx, root, rules, opts)
-	idx.BuildFrom(ch)
+	idx.BuildFrom(ch, progress)
 }
 
 // Len returns the number of indexed files.
@@ -155,9 +166,23 @@ func (idx *Index) Search(ctx context.Context, opts SearchOptions) SearchResultSe
 	candidates := idx.candidatesFiltered(opts, allExts)
 
 	var results []model.SearchResult
+	matchCount := 0
+	// Early termination threshold: if we find many matches, we stop looking.
+	// We collect more than MaxResults to allow for ranking quality.
+	threshold := opts.MaxResults * 10
+	if threshold < 500 {
+		threshold = 500
+	}
+
 	for i, ci := range candidates {
 		if i%100 == 0 && ctx != nil && ctx.Err() != nil {
 			return SearchResultSet{}
+		}
+
+		// Optimization: if we have enough results and this is a large search,
+		// we can stop early.
+		if matchCount > threshold && len(candidates) > 10000 {
+			break
 		}
 
 		entry := idx.files[ci]
@@ -208,6 +233,7 @@ func (idx *Index) Search(ctx context.Context, opts SearchOptions) SearchResultSe
 		r := idx.toResult(entry, finalScore, mr.Ranges)
 		r.Line = pq.LineNum
 		results = append(results, r)
+		matchCount++
 	}
 
 	// For empty queries, sort by score (history boost) then modification time.
@@ -240,10 +266,23 @@ func (idx *Index) SearchSymbols(ctx context.Context, query string, maxResults in
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
+	if maxResults <= 0 {
+		maxResults = 100
+	}
+	threshold := maxResults * 10
+	if threshold < 500 {
+		threshold = 500
+	}
+
 	var results []model.SearchResult
+	matchCount := 0
 	for i, s := range idx.symbols {
 		if i%100 == 0 && ctx != nil && ctx.Err() != nil {
 			return SearchResultSet{}
+		}
+
+		if matchCount > threshold && len(idx.symbols) > 50000 {
+			break
 		}
 
 		if !includeHidden && strings.HasPrefix(filepath.Base(s.FilePath), ".") {
@@ -262,6 +301,7 @@ func (idx *Index) SearchSymbols(ctx context.Context, query string, maxResults in
 				score = history.GetBoost(s.FilePath)
 			}
 			results = append(results, SymbolToResult(s, score, nil))
+			matchCount++
 			continue
 		}
 
@@ -275,6 +315,7 @@ func (idx *Index) SearchSymbols(ctx context.Context, query string, maxResults in
 			score += history.GetBoost(s.FilePath)
 		}
 		results = append(results, SymbolToResult(s, score, mr.Ranges))
+		matchCount++
 	}
 
 	RankResults(results)
@@ -290,10 +331,23 @@ func (idx *Index) SearchClasses(ctx context.Context, query string, maxResults in
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
+	if maxResults <= 0 {
+		maxResults = 100
+	}
+	threshold := maxResults * 10
+	if threshold < 500 {
+		threshold = 500
+	}
+
 	var results []model.SearchResult
+	matchCount := 0
 	for i, s := range idx.symbols {
 		if i%100 == 0 && ctx != nil && ctx.Err() != nil {
 			return SearchResultSet{}
+		}
+
+		if matchCount > threshold && len(idx.symbols) > 50000 {
+			break
 		}
 
 		if !isClassLike(s.Kind) {
@@ -315,6 +369,7 @@ func (idx *Index) SearchClasses(ctx context.Context, query string, maxResults in
 				score = history.GetBoost(s.FilePath)
 			}
 			results = append(results, SymbolToResult(s, score, nil))
+			matchCount++
 			continue
 		}
 
@@ -328,6 +383,7 @@ func (idx *Index) SearchClasses(ctx context.Context, query string, maxResults in
 			score += history.GetBoost(s.FilePath)
 		}
 		results = append(results, SymbolToResult(s, score, mr.Ranges))
+		matchCount++
 	}
 
 	RankResults(results)

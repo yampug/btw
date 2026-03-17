@@ -33,6 +33,13 @@ type ResultsMsg struct {
 	Ch           chan ResultsMsg
 }
 
+// IndexProgressMsg is emitted during indexing to show progress.
+type IndexProgressMsg struct {
+	Count int
+	Done  bool
+	Ch    chan IndexProgressMsg
+}
+
 // OpenResultMsg is emitted when the user presses Enter on a selected result.
 type OpenResultMsg struct {
 	Result model.SearchResult
@@ -159,7 +166,11 @@ func (a App) LineNum() int {
 }
 
 func (a App) Init() tea.Cmd {
-	return tea.Batch(a.input.Focus(), a.triggerSearch())
+	return tea.Batch(
+		a.input.Focus(),
+		a.refreshIndex(), // Non-blocking index build
+		a.triggerSearch(),
+	)
 }
 
 func isNavigationKey(msg tea.Msg) bool {
@@ -178,6 +189,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case IndexProgressMsg:
+		if msg.Done {
+			if a.index != nil {
+				a.filterMenu.SetExtensions(a.index.Extensions())
+			}
+			a.resultList.SetLoading(true)
+			cmds = append(cmds, a.resultList.SpinnerTick(), a.triggerSearch())
+			cmds = append(cmds, a.statusBar.SetMessage("Index refreshed", 2*time.Second))
+		} else {
+			status := fmt.Sprintf("Indexing... %d files", msg.Count)
+			cmds = append(cmds, a.statusBar.SetMessage(status, 1*time.Second))
+			if msg.Ch != nil {
+				cmds = append(cmds, a.waitForIndexProgress(msg.Ch))
+			}
+		}
 	case IndexUpdatedMsg:
 		if a.index != nil {
 			a.filterMenu.SetExtensions(a.index.Extensions())
@@ -444,6 +470,17 @@ func (a App) waitForResults(id SearchID, ch chan ResultsMsg) tea.Cmd {
 	}
 }
 
+// waitForIndexProgress waits for the next message on the index progress channel.
+func (a App) waitForIndexProgress(ch chan IndexProgressMsg) tea.Cmd {
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return msg
+	}
+}
+
 func (a *App) layout(w, h int) {
 	a.width = w
 	a.height = h
@@ -464,14 +501,25 @@ func (a App) refreshIndex() tea.Cmd {
 		return nil
 	}
 	root := a.index.Root()
-	return func() tea.Msg {
-		rules := search.LoadIgnoreFiles(root)
-		if len(a.cfg.IgnorePatterns) > 0 {
-			rules.LoadPatterns(a.cfg.IgnorePatterns)
-		}
-		a.index.RebuildFrom(context.Background(), root, rules, search.WalkOptions{})
-		return IndexUpdatedMsg{}
-	}
+	ch := make(chan IndexProgressMsg, 10)
+
+	return tea.Batch(
+		func() tea.Msg {
+			go func() {
+				defer close(ch)
+				rules := search.LoadIgnoreFiles(root)
+				if len(a.cfg.IgnorePatterns) > 0 {
+					rules.LoadPatterns(a.cfg.IgnorePatterns)
+				}
+				a.index.RebuildFrom(context.Background(), root, rules, search.WalkOptions{}, func(count int) {
+					ch <- IndexProgressMsg{Count: count, Done: false, Ch: ch}
+				})
+				ch <- IndexProgressMsg{Done: true}
+			}()
+			return nil
+		},
+		a.waitForIndexProgress(ch),
+	)
 }
 
 func revealInFileManager(path string) error {

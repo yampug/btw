@@ -30,7 +30,7 @@ func main() {
 		rules.LoadPatterns(cfg.IgnorePatterns)
 	}
 	idx := search.NewIndex()
-	idx.RebuildFrom(context.Background(), searchRoot, rules, search.WalkOptions{})
+	idx.RebuildFrom(context.Background(), searchRoot, rules, search.WalkOptions{}, nil)
 
 	app := tui.NewApp(idx, cfg)
 	p := tea.NewProgram(app, tea.WithAltScreen())

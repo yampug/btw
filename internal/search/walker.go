@@ -39,32 +39,56 @@ func Walk(ctx context.Context, root string, rules *IgnoreRules, opts WalkOptions
 		opts.Workers = 8
 	}
 
-	out := make(chan FileEntry, 256)
-	dirs := make(chan walkJob, 256)
+	out := make(chan FileEntry, 1024)
+	
+	// Queue and coordination for bounded workers.
+	var mu sync.Mutex
+	cond := sync.NewCond(&mu)
+	queue := []walkJob{{dir: root, depth: 0, symlink: false, rules: rules}}
+	active := 0
+	done := false
+
 	var wg sync.WaitGroup
-
-	// Seed with the root directory.
-	dirs <- walkJob{dir: root, depth: 0, symlink: false, rules: rules}
-
-	// Track in-flight directory jobs so we know when to close dirs.
-	var inflight sync.WaitGroup
-	inflight.Add(1)
-
-	// Spawn workers.
-	for range opts.Workers {
+	for i := 0; i < opts.Workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for job := range dirs {
-				walkDir(ctx, root, job, opts, out, dirs, &inflight)
+			for {
+				var job walkJob
+				mu.Lock()
+				for len(queue) == 0 && !done {
+					cond.Wait()
+				}
+				if done {
+					mu.Unlock()
+					return
+				}
+				
+				// Pop job from queue.
+				job = queue[0]
+				queue = queue[1:]
+				active++
+				mu.Unlock()
+
+				// Process directory.
+				newJobs := walkOneDir(ctx, root, job, opts, out)
+				
+				mu.Lock()
+				active--
+				queue = append(queue, newJobs...)
+				if active == 0 && len(queue) == 0 {
+					done = true
+					cond.Broadcast()
+				} else if len(newJobs) > 0 {
+					cond.Broadcast()
+				}
+				mu.Unlock()
 			}
 		}()
 	}
 
-	// Close dirs channel once all directory jobs are done, then wait for workers.
+	// Close out channel once all workers are done.
 	go func() {
-		inflight.Wait()
-		close(dirs)
 		wg.Wait()
 		close(out)
 	}()
@@ -79,26 +103,22 @@ type walkJob struct {
 	rules   *IgnoreRules
 }
 
-func walkDir(
+func walkOneDir(
 	ctx context.Context,
 	root string,
 	job walkJob,
 	opts WalkOptions,
 	out chan<- FileEntry,
-	dirs chan<- walkJob,
-	inflight *sync.WaitGroup,
-) {
-	defer inflight.Done()
-
+) []walkJob {
 	select {
 	case <-ctx.Done():
-		return
+		return nil
 	default:
 	}
 
 	entries, err := os.ReadDir(job.dir)
 	if err != nil {
-		return
+		return nil
 	}
 
 	currentRules := job.rules
@@ -111,10 +131,11 @@ func walkDir(
 		}
 	}
 
+	var newJobs []walkJob
 	for _, e := range entries {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		default:
 		}
 
@@ -136,7 +157,6 @@ func walkDir(
 		// Resolve symlinks.
 		if isSymlink {
 			if !opts.FollowSymlinks || job.symlink {
-				// Don't follow symlinks deeper than one level.
 				continue
 			}
 			target, err := os.Stat(absPath)
@@ -147,39 +167,21 @@ func walkDir(
 			info = target
 		}
 
-		// Skip hidden entries unless configured.
 		if !opts.IncludeHidden && strings.HasPrefix(name, ".") {
 			continue
 		}
 
-		// Check ignore rules.
 		if currentRules.IsIgnored(relPath, isDir) {
 			continue
 		}
 
 		if isDir {
-			inflight.Add(1)
-			newJob := walkJob{
+			newJobs = append(newJobs, walkJob{
 				dir:     absPath,
 				depth:   job.depth + 1,
 				symlink: isSymlink || job.symlink,
 				rules:   currentRules,
-			}
-			select {
-			case dirs <- newJob:
-			case <-ctx.Done():
-				inflight.Done()
-				return
-			default:
-				// Buffer is full. Spawn a goroutine to avoid deadlocking the worker pool.
-				go func(j walkJob) {
-					select {
-					case dirs <- j:
-					case <-ctx.Done():
-						inflight.Done()
-					}
-				}(newJob)
-			}
+			})
 			continue
 		}
 
@@ -196,7 +198,8 @@ func walkDir(
 		select {
 		case out <- entry:
 		case <-ctx.Done():
-			return
+			return nil
 		}
 	}
+	return newJobs
 }

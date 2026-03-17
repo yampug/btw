@@ -22,7 +22,7 @@ func buildSymbolTestIndex(t *testing.T, files map[string]string) *Index {
 
 	idx := NewIndex()
 	rules := &IgnoreRules{}
-	idx.RebuildFrom(context.Background(), dir, rules, WalkOptions{})
+	idx.RebuildFrom(context.Background(), dir, rules, WalkOptions{}, nil)
 	idx.ExtractSymbols()
 	return idx
 }
@@ -433,7 +433,7 @@ func TestSearchSymbols_SkipsHidden(t *testing.T) {
 
 	idx := NewIndex()
 	rules := &IgnoreRules{}
-	idx.RebuildFrom(context.Background(), dir, rules, WalkOptions{IncludeHidden: true})
+	idx.RebuildFrom(context.Background(), dir, rules, WalkOptions{IncludeHidden: true}, nil)
 	idx.ExtractSymbols()
 
 	results := idx.SearchSymbols(context.Background(), "", 100, false, false, nil).Items

@@ -2,22 +2,25 @@ package search
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"unicode/utf8"
 
 	"github.com/bob/boomerang/internal/model"
 )
 
 const (
-	grepMaxLineLen = 1000
-	grepDefaultMax = 200
-	grepTextIcon   = "\U000f0219" // nf-md-file_document_outline
-	grepTextColor  = "#6C8EBF"
+	grepMaxLineLen         = 1000
+	grepDefaultMax         = 200
+	grepTextIcon           = "\U000f0219" // nf-md-file_document_outline
+	grepTextColor          = "#6C8EBF"
+	grepLargeFileThreshold = 1 * 1024 * 1024 // 1MB
 )
 
 // binaryExts lists common binary file extensions to skip.
@@ -127,6 +130,13 @@ func Grep(ctx context.Context, idx *Index, query string, opts GrepOptions) <-cha
 
 // grepFile searches a single file for matches.
 func grepFile(ctx context.Context, entry FileEntry, literal string, re *regexp.Regexp, limit int) []GrepMatch {
+	if entry.Size > grepLargeFileThreshold {
+		return grepFileMmap(ctx, entry, literal, re, limit)
+	}
+	return grepFileScanner(ctx, entry, literal, re, limit)
+}
+
+func grepFileScanner(ctx context.Context, entry FileEntry, literal string, re *regexp.Regexp, limit int) []GrepMatch {
 	f, err := os.Open(entry.Path)
 	if err != nil {
 		return nil
@@ -161,43 +171,12 @@ func grepFile(ctx context.Context, entry FileEntry, literal string, re *regexp.R
 			continue
 		}
 
-		var matchRanges []model.MatchRange
-
-		if re != nil {
-			locs := re.FindAllStringIndex(line, -1)
-			if len(locs) == 0 {
-				continue
-			}
-			for _, loc := range locs {
-				start := utf8.RuneCountInString(line[:loc[0]])
-				end := start + utf8.RuneCountInString(line[loc[0]:loc[1]])
-				matchRanges = append(matchRanges, model.MatchRange{Start: start, End: end})
-			}
-		} else {
-			lowerLine := strings.ToLower(line)
-			searchFrom := 0
-			for {
-				pos := strings.Index(lowerLine[searchFrom:], literal)
-				if pos < 0 {
-					break
-				}
-				byteStart := searchFrom + pos
-				byteEnd := byteStart + len(literal)
-				start := utf8.RuneCountInString(line[:byteStart])
-				end := start + utf8.RuneCountInString(line[byteStart:byteEnd])
-				matchRanges = append(matchRanges, model.MatchRange{Start: start, End: end})
-				searchFrom = byteEnd
-			}
-			if len(matchRanges) == 0 {
-				continue
-			}
+		matchRanges := findMatchRanges(line, literal, re)
+		if len(matchRanges) == 0 {
+			continue
 		}
 
-		col := 0
-		if len(matchRanges) > 0 {
-			col = matchRanges[0].Start + 1
-		}
-
+		col := matchRanges[0].Start + 1
 		results = append(results, GrepMatch{
 			FilePath:    entry.Path,
 			RelPath:     entry.RelPath,
@@ -214,6 +193,110 @@ func grepFile(ctx context.Context, entry FileEntry, literal string, re *regexp.R
 	}
 
 	return results
+}
+
+func grepFileMmap(ctx context.Context, entry FileEntry, literal string, re *regexp.Regexp, limit int) []GrepMatch {
+	f, err := os.Open(entry.Path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil || info.Size() == 0 {
+		return nil
+	}
+
+	data, err := syscall.Mmap(int(f.Fd()), 0, int(info.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		return grepFileScanner(ctx, entry, literal, re, limit) // Fallback
+	}
+	defer syscall.Munmap(data)
+
+	// Quick binary check.
+	checkLen := 512
+	if len(data) < checkLen {
+		checkLen = len(data)
+	}
+	for i := 0; i < checkLen; i++ {
+		if data[i] == 0 {
+			return nil
+		}
+	}
+
+	var results []GrepMatch
+	lineNum := 0
+	start := 0
+	for start < len(data) {
+		if ctx.Err() != nil {
+			break
+		}
+		lineNum++
+		end := bytes.IndexByte(data[start:], '\n')
+		var lineBytes []byte
+		if end == -1 {
+			lineBytes = data[start:]
+			start = len(data)
+		} else {
+			lineBytes = data[start : start+end]
+			start += end + 1
+		}
+
+		if len(lineBytes) > grepMaxLineLen {
+			continue
+		}
+
+		line := string(lineBytes)
+		matchRanges := findMatchRanges(line, literal, re)
+		if len(matchRanges) == 0 {
+			continue
+		}
+
+		col := matchRanges[0].Start + 1
+		results = append(results, GrepMatch{
+			FilePath:    entry.Path,
+			RelPath:     entry.RelPath,
+			FileName:    entry.Name,
+			Line:        lineNum,
+			Column:      col,
+			Content:     line,
+			MatchRanges: matchRanges,
+		})
+
+		if len(results) >= limit {
+			break
+		}
+	}
+
+	return results
+}
+
+func findMatchRanges(line, literal string, re *regexp.Regexp) []model.MatchRange {
+	var matchRanges []model.MatchRange
+	if re != nil {
+		locs := re.FindAllStringIndex(line, -1)
+		for _, loc := range locs {
+			start := utf8.RuneCountInString(line[:loc[0]])
+			end := start + utf8.RuneCountInString(line[loc[0]:loc[1]])
+			matchRanges = append(matchRanges, model.MatchRange{Start: start, End: end})
+		}
+	} else {
+		lowerLine := strings.ToLower(line)
+		searchFrom := 0
+		for {
+			pos := strings.Index(lowerLine[searchFrom:], literal)
+			if pos < 0 {
+				break
+			}
+			byteStart := searchFrom + pos
+			byteEnd := byteStart + len(literal)
+			start := utf8.RuneCountInString(line[:byteStart])
+			end := start + utf8.RuneCountInString(line[byteStart:byteEnd])
+			matchRanges = append(matchRanges, model.MatchRange{Start: start, End: end})
+			searchFrom = byteEnd
+		}
+	}
+	return matchRanges
 }
 
 // GrepMatchToResult converts a GrepMatch to a model.SearchResult for TUI display.
