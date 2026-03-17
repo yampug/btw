@@ -65,6 +65,7 @@ func (h HelpOverlay) View() string {
 		titleStyle.Render("Navigation"),
 		h.entry(keyStyle, descStyle, "Up / Down", "Select result (wrap around)"),
 		h.entry(keyStyle, descStyle, "Ctrl+N / P", "Next / Previous result"),
+		h.entry(keyStyle, descStyle, "Ctrl+↑ / ↓", "Cycle query history"),
 		h.entry(keyStyle, descStyle, "PgUp / Dn", "Page up / down"),
 		h.entry(keyStyle, descStyle, "Tab / S-Tab", "Next / Previous tab"),
 		h.entry(keyStyle, descStyle, "1 - 6", "Jump to tab (input empty)"),

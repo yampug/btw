@@ -90,6 +90,12 @@ func (s *SearchInput) SetFilter(f string) {
 	s.SetWidth(s.width)
 }
 
+// SetValue sets the input text programmatically.
+func (s *SearchInput) SetValue(v string) {
+	s.input.SetValue(v)
+	s.parseValue()
+}
+
 // Focus gives keyboard focus to the input.
 func (s *SearchInput) Focus() tea.Cmd {
 	return s.input.Focus()

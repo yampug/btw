@@ -74,6 +74,7 @@ type App struct {
 	cfg            *config.Config
 	theme          Theme
 	history        *config.History
+	queryCursor    int // -1 means not navigating history
 }
 
 // NewApp returns an initialized App with the given file index and config.
@@ -118,6 +119,7 @@ func NewApp(idx *search.Index, cfg *config.Config) App {
 		cfg:            cfg,
 		theme:          theme,
 		history:        hist,
+		queryCursor:    -1,
 	}
 }
 
@@ -202,6 +204,36 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.tabBar, cmd = a.tabBar.Update(msg)
 				return a, cmd
 			}
+		case "ctrl+up":
+			if a.history != nil {
+				tabName := a.tabBar.Active().String()
+				queries := a.history.GetQueries(tabName)
+				if len(queries) > 0 {
+					a.queryCursor++
+					if a.queryCursor >= len(queries) {
+						a.queryCursor = len(queries) - 1
+					}
+					a.input.SetValue(queries[a.queryCursor])
+					cmds = append(cmds, a.triggerSearch())
+				}
+			}
+			return a, tea.Batch(cmds...)
+		case "ctrl+down":
+			if a.history != nil {
+				tabName := a.tabBar.Active().String()
+				queries := a.history.GetQueries(tabName)
+				a.queryCursor--
+				if a.queryCursor < -1 {
+					a.queryCursor = -1
+				}
+				if a.queryCursor == -1 {
+					a.input.SetValue("")
+				} else {
+					a.input.SetValue(queries[a.queryCursor])
+				}
+				cmds = append(cmds, a.triggerSearch())
+			}
+			return a, tea.Batch(cmds...)
 		case "ctrl+y":
 			if r, ok := a.resultList.Selected(); ok && r.FilePath != "" {
 				if err := clipboard.WriteAll(r.FilePath); err == nil {
@@ -267,9 +299,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.resultList.SetTotalMatched(msg.TotalMatched)
 	case TabChangedMsg:
 		a.tabBar.SetActive(msg.Tab)
+		a.queryCursor = -1
 		a.resultList.SetLoading(true)
 		cmds = append(cmds, a.resultList.SpinnerTick(), a.triggerSearch())
 	case QueryChangedMsg:
+		if a.history != nil && msg.Query != "" {
+			a.history.AddQuery(a.tabBar.Active().String(), msg.Query)
+			_ = a.history.Save()
+		}
+		// Reset history cursor when typing a new query.
+		a.queryCursor = -1
 		a.resultList.SetLoading(true)
 		cmds = append(cmds, a.resultList.SpinnerTick(), a.triggerSearch())
 	case ScopeChangedMsg:
