@@ -65,6 +65,7 @@ type App struct {
 	resultList     ResultList
 	statusBar      StatusBar
 	filterMenu     FilterMenu
+	helpOverlay    HelpOverlay
 	index          *search.Index
 	searchCancel   *searchCanceler
 	chosen         *model.SearchResult // set when user presses Enter
@@ -106,6 +107,7 @@ func NewApp(idx *search.Index, cfg *config.Config) App {
 		resultList:     NewResultList(theme),
 		statusBar:      sb,
 		filterMenu:     fm,
+		helpOverlay:    NewHelpOverlay(theme),
 		index:          idx,
 		searchCancel:   &searchCanceler{},
 		actionRegistry: NewActionRegistry(),
@@ -186,9 +188,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Batch(cmds...)
 		case "?":
 			if a.input.Value() == "" {
-				// Show help.
-				cmds = append(cmds, a.statusBar.SetMessage("Help overlay coming soon...", 2*time.Second))
-				return a, tea.Batch(cmds...)
+				a.helpOverlay.Toggle()
+				return a, nil
 			}
 		case "1", "2", "3", "4", "5", "6":
 			if a.input.Value() == "" {
@@ -274,6 +275,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
+
+	// When help overlay is visible, any key closes it.
+	if a.helpOverlay.Visible() {
+		if _, ok := msg.(tea.KeyMsg); ok {
+			a.helpOverlay.Toggle()
+			return a, nil
+		}
+	}
 
 	// When filter menu is visible, route keys there instead of other components.
 	if a.filterMenu.Visible() {
@@ -652,6 +661,12 @@ func (a App) View() string {
 	// Overlay filter menu if visible.
 	if a.filterMenu.Visible() {
 		overlay := a.filterMenu.View()
+		rendered = lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, overlay)
+	}
+
+	// Overlay help if visible.
+	if a.helpOverlay.Visible() {
+		overlay := a.helpOverlay.View()
 		rendered = lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, overlay)
 	}
 
