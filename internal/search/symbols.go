@@ -255,140 +255,8 @@ func extractFileSymbols(entry FileEntry) []Symbol {
 	return symbols
 }
 
-// SearchSymbols finds symbols matching the query using fuzzy matching.
-func (idx *Index) SearchSymbols(query string, maxResults int, includeHidden bool) SearchResultSet {
-	idx.mu.RLock()
-	defer idx.mu.RUnlock()
-
-	if maxResults <= 0 {
-		maxResults = 100
-	}
-
-	query = strings.TrimSpace(query)
-
-	var results []model.SearchResult
-	for _, sym := range idx.symbols {
-		if !includeHidden && strings.HasPrefix(sym.FileName, ".") {
-			continue
-		}
-
-		if query == "" {
-			results = append(results, symbolToResult(sym, 0, nil))
-			continue
-		}
-
-		// Fuzzy match against symbol name.
-		mr := FuzzyMatch(query, sym.Name)
-		if !mr.Matched {
-			// Fallback: try matching against the signature.
-			mr = FuzzyMatch(query, sym.Signature)
-		}
-		if !mr.Matched {
-			continue
-		}
-
-		params := ScoreParams{
-			RelPath: sym.RelPath,
-			Name:    sym.Name,
-		}
-		score := Score(mr, params)
-		r := symbolToResult(sym, score, mr.Ranges)
-		results = append(results, r)
-	}
-
-	// Sort: empty query → alphabetical, otherwise by score.
-	if query == "" {
-		sortSymbolsAlpha(results)
-	} else {
-		RankResults(results)
-	}
-
-	totalMatched := len(results)
-	if len(results) > maxResults {
-		results = results[:maxResults]
-	}
-	return SearchResultSet{Items: results, TotalMatched: totalMatched}
-}
-
-// SearchClasses finds type-level symbols (classes, structs, interfaces, enums) matching the query.
-func (idx *Index) SearchClasses(query string, maxResults int, includeHidden bool) SearchResultSet {
-	idx.mu.RLock()
-	defer idx.mu.RUnlock()
-
-	if maxResults <= 0 {
-		maxResults = 100
-	}
-
-	query = strings.TrimSpace(query)
-
-	var results []model.SearchResult
-	for _, sym := range idx.symbols {
-		// Filter to only type-level symbols (classes, structs, interfaces, enums)
-		if sym.Kind != SymbolType {
-			continue
-		}
-
-		if !includeHidden && strings.HasPrefix(sym.FileName, ".") {
-			continue
-		}
-
-		if query == "" {
-			results = append(results, symbolToResult(sym, 0, nil))
-			continue
-		}
-
-		// Fuzzy match against symbol name.
-		mr := FuzzyMatch(query, sym.Name)
-		if !mr.Matched {
-			// Fallback: try matching against the signature.
-			mr = FuzzyMatch(query, sym.Signature)
-		}
-		if !mr.Matched {
-			continue
-		}
-
-		params := ScoreParams{
-			RelPath: sym.RelPath,
-			Name:    sym.Name,
-		}
-		score := Score(mr, params)
-		r := symbolToResult(sym, score, mr.Ranges)
-		results = append(results, r)
-	}
-
-	// Sort: empty query → alphabetical, otherwise by score.
-	if query == "" {
-		sortSymbolsAlpha(results)
-	} else {
-		RankResults(results)
-	}
-
-	totalMatched := len(results)
-	if len(results) > maxResults {
-		results = results[:maxResults]
-	}
-	return SearchResultSet{Items: results, TotalMatched: totalMatched}
-}
-
-// SearchActions finds actions matching the query using fuzzy matching.
-// This is a placeholder that will be implemented by the TUI layer since actions
-// are not stored in the search index.
-func (idx *Index) SearchActions(query string, maxResults int) SearchResultSet {
-	// This method is intentionally left empty as actions are handled by the TUI.
-	// The TUI will call ActionRegistry.SearchActions directly.
-	return SearchResultSet{Items: []model.SearchResult{}, TotalMatched: 0}
-}
-
-func sortSymbolsAlpha(results []model.SearchResult) {
-	n := len(results)
-	for i := 1; i < n; i++ {
-		for j := i; j > 0 && results[j].Name < results[j-1].Name; j-- {
-			results[j], results[j-1] = results[j-1], results[j]
-		}
-	}
-}
-
-func symbolToResult(sym Symbol, score int, ranges []model.MatchRange) model.SearchResult {
+// SymbolToResult converts a Symbol to a model.SearchResult.
+func SymbolToResult(sym Symbol, score int, ranges []model.MatchRange) model.SearchResult {
 	display := symbolKindDisplay[sym.Kind]
 
 	dir := filepath.Dir(sym.RelPath)
@@ -410,6 +278,20 @@ func symbolToResult(sym Symbol, score int, ranges []model.MatchRange) model.Sear
 		MatchRanges: ranges,
 		Icon:        display.icon,
 		IconColor:   display.color,
+	}
+}
+
+// isClassLike returns true if the kind is type-level.
+func isClassLike(k SymbolKind) bool {
+	return k == SymbolType
+}
+
+func sortSymbolsAlpha(results []model.SearchResult) {
+	n := len(results)
+	for i := 1; i < n; i++ {
+		for j := i; j > 0 && results[j].Name < results[j-1].Name; j-- {
+			results[j], results[j-1] = results[j-1], results[j]
+		}
 	}
 }
 

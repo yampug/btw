@@ -380,6 +380,7 @@ func (a App) triggerSearch() tea.Cmd {
 func (a App) triggerAllSearch() tea.Cmd {
 	query := a.input.Value()
 	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
+	projectOnly := a.statusBar.ProjectOnly()
 	idx := a.index
 	extFilters := a.filterMenu.SelectedExtensions()
 
@@ -393,6 +394,7 @@ func (a App) triggerAllSearch() tea.Cmd {
 			ExtFilters:    extFilters,
 			MaxResults:    5,
 			IncludeHidden: includeHidden,
+			ProjectOnly:   projectOnly,
 		})
 		if len(filesRs.Items) > 0 {
 			allItems = append(allItems, model.SearchResult{
@@ -410,7 +412,7 @@ func (a App) triggerAllSearch() tea.Cmd {
 		}
 
 		// Classes
-		classesRs := idx.SearchClasses(query, 5, includeHidden)
+		classesRs := idx.SearchClasses(query, 5, includeHidden, projectOnly)
 		if len(classesRs.Items) > 0 {
 			allItems = append(allItems, model.SearchResult{
 				Name:       "Classes",
@@ -427,7 +429,7 @@ func (a App) triggerAllSearch() tea.Cmd {
 		}
 
 		// Symbols
-		symbolsRs := idx.SearchSymbols(query, 5, includeHidden)
+		symbolsRs := idx.SearchSymbols(query, 5, includeHidden, projectOnly)
 		if len(symbolsRs.Items) > 0 {
 			allItems = append(allItems, model.SearchResult{
 				Name:       "Symbols",
@@ -475,6 +477,7 @@ func (a App) triggerFileSearch() tea.Cmd {
 	tab := a.tabBar.Active()
 	extFilters := a.filterMenu.SelectedExtensions()
 	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
+	projectOnly := a.statusBar.ProjectOnly()
 
 	return func() tea.Msg {
 		rs := idx.Search(search.SearchOptions{
@@ -483,6 +486,7 @@ func (a App) triggerFileSearch() tea.Cmd {
 			ExtFilters:    extFilters,
 			MaxResults:    100,
 			IncludeHidden: includeHidden,
+			ProjectOnly:   projectOnly,
 		})
 		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
 	}
@@ -492,9 +496,10 @@ func (a App) triggerSymbolSearch() tea.Cmd {
 	idx := a.index
 	query := a.input.Value()
 	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
+	projectOnly := a.statusBar.ProjectOnly()
 
 	return func() tea.Msg {
-		rs := idx.SearchSymbols(query, 100, includeHidden)
+		rs := idx.SearchSymbols(query, 100, includeHidden, projectOnly)
 		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
 	}
 }
@@ -503,9 +508,10 @@ func (a App) triggerClassSearch() tea.Cmd {
 	idx := a.index
 	query := a.input.Value()
 	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
+	projectOnly := a.statusBar.ProjectOnly()
 
 	return func() tea.Msg {
-		rs := idx.SearchClasses(query, 100, includeHidden)
+		rs := idx.SearchClasses(query, 100, includeHidden, projectOnly)
 		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
 	}
 }
@@ -566,6 +572,7 @@ func (a App) triggerGrepSearch() tea.Cmd {
 	idx := a.index
 	query := a.input.Value()
 	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
+	projectOnly := a.statusBar.ProjectOnly()
 	sc := a.searchCancel
 
 	return func() tea.Msg {
@@ -574,6 +581,7 @@ func (a App) triggerGrepSearch() tea.Cmd {
 
 		ch := search.Grep(ctx, idx, query, search.GrepOptions{
 			IncludeHidden: includeHidden,
+			ProjectOnly:   projectOnly,
 			MaxResults:    200,
 		})
 

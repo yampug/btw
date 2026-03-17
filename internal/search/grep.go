@@ -39,6 +39,7 @@ var binaryExts = map[string]bool{
 type GrepOptions struct {
 	IncludeHidden bool
 	MaxResults    int
+	ProjectOnly   bool
 }
 
 // GrepMatch is a single content match from grep search.
@@ -97,6 +98,9 @@ func Grep(ctx context.Context, idx *Index, query string, opts GrepOptions) <-cha
 				continue
 			}
 			if !opts.IncludeHidden && strings.HasPrefix(entry.Name, ".") {
+				continue
+			}
+			if opts.ProjectOnly && isVendored(entry.RelPath) {
 				continue
 			}
 			if binaryExts[strings.ToLower(entry.Ext)] {

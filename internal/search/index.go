@@ -109,12 +109,13 @@ func (idx *Index) Len() int {
 
 // SearchOptions controls how Search filters and ranks results.
 type SearchOptions struct {
-	Query       string
-	Tab         model.Tab
-	ExtFilter   string   // e.g. ".go" — single ext (legacy, used by TUI badge)
-	ExtFilters  []string // multiple extensions (e.g. [".go", ".rs"])
-	MaxResults  int      // 0 means no limit
-	IncludeHidden bool   // include hidden files in results
+	Query         string
+	Tab           model.Tab
+	ExtFilter     string   // e.g. ".go" — single ext (legacy, used by TUI badge)
+	ExtFilters    []string // multiple extensions (e.g. [".go", ".rs"])
+	MaxResults    int      // 0 means no limit
+	IncludeHidden bool     // include hidden files in results
+	ProjectOnly   bool     // exclude vendor, node_modules, etc.
 }
 
 // SearchResultSet holds results plus metadata for the UI.
@@ -159,6 +160,11 @@ func (idx *Index) Search(opts SearchOptions) SearchResultSet {
 			continue
 		}
 
+		// Project Only: exclude vendor, node_modules, etc.
+		if opts.ProjectOnly && isVendored(entry.RelPath) {
+			continue
+		}
+
 		// Empty query: return all candidates (sorted by mod time later).
 		if strings.TrimSpace(pq.Query) == "" {
 			r := idx.toResult(entry, 0, nil)
@@ -200,6 +206,101 @@ func (idx *Index) Search(opts SearchOptions) SearchResultSet {
 	totalMatched := len(results)
 	if len(results) > opts.MaxResults {
 		results = results[:opts.MaxResults]
+	}
+	return SearchResultSet{Items: results, TotalMatched: totalMatched}
+}
+
+// isVendored returns true if any segment of the relative path is in DefaultExcludes.
+func isVendored(relPath string) bool {
+	segments := strings.Split(relPath, string(filepath.Separator))
+	for _, s := range segments {
+		if DefaultExcludes[s] {
+			return true
+		}
+	}
+	return false
+}
+
+// SearchSymbols returns ranked symbols matching the query.
+func (idx *Index) SearchSymbols(query string, maxResults int, includeHidden bool, projectOnly bool) SearchResultSet {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	var results []model.SearchResult
+	for _, s := range idx.symbols {
+		if !includeHidden && strings.HasPrefix(filepath.Base(s.FilePath), ".") {
+			continue
+		}
+		if projectOnly {
+			// Find the relative path to check for vendor/etc.
+			// This is a bit expensive without relPath stored in Symbol.
+			// For now, let's assume Symbol has enough info or we can get it.
+			// Actually Symbols are extracted from files in the index, so we can check
+			// their path against the root.
+			rel, err := filepath.Rel(idx.root, s.FilePath)
+			if err == nil && isVendored(rel) {
+				continue
+			}
+		}
+
+		if query == "" {
+			results = append(results, SymbolToResult(s, 0, nil))
+			continue
+		}
+
+		mr := FuzzyMatch(query, s.Name)
+		if !mr.Matched {
+			continue
+		}
+
+		results = append(results, SymbolToResult(s, mr.Score, mr.Ranges))
+	}
+
+	RankResults(results)
+	totalMatched := len(results)
+	if maxResults > 0 && len(results) > maxResults {
+		results = results[:maxResults]
+	}
+	return SearchResultSet{Items: results, TotalMatched: totalMatched}
+}
+
+// SearchClasses returns only type-level symbols matching the query.
+func (idx *Index) SearchClasses(query string, maxResults int, includeHidden bool, projectOnly bool) SearchResultSet {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	var results []model.SearchResult
+	for _, s := range idx.symbols {
+		if !isClassLike(s.Kind) {
+			continue
+		}
+		if !includeHidden && strings.HasPrefix(filepath.Base(s.FilePath), ".") {
+			continue
+		}
+		if projectOnly {
+			rel, err := filepath.Rel(idx.root, s.FilePath)
+			if err == nil && isVendored(rel) {
+				continue
+			}
+		}
+
+		if query == "" {
+			results = append(results, SymbolToResult(s, 0, nil))
+			continue
+		}
+
+		mr := FuzzyMatch(query, s.Name)
+		if !mr.Matched {
+			continue
+		}
+
+		results = append(results, SymbolToResult(s, mr.Score, mr.Ranges))
+	}
+
+	RankResults(results)
+	totalMatched := len(results)
+	if maxResults > 0 && len(results) > maxResults {
+		results = results[:maxResults]
 	}
 	return SearchResultSet{Items: results, TotalMatched: totalMatched}
 }
