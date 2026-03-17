@@ -74,6 +74,7 @@ type App struct {
 	searchCancel   *searchCanceler
 	chosen         *model.SearchResult // set when user presses Enter
 	actionRegistry *ActionRegistry
+	showHidden     bool
 }
 
 // NewApp returns an initialized App with the given file index.
@@ -91,6 +92,7 @@ func NewApp(idx *search.Index) App {
 		index:          idx,
 		searchCancel:   &searchCanceler{},
 		actionRegistry: NewActionRegistry(),
+		showHidden:     false,
 	}
 }
 
@@ -124,6 +126,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case IndexUpdatedMsg:
+		a.resultList.SetLoading(true)
+		cmds = append(cmds, a.resultList.SpinnerTick(), a.triggerSearch())
+		cmds = append(cmds, a.statusBar.SetMessage("Index refreshed", 2*time.Second))
 	case tea.KeyMsg:
 		// Global keys and shortcuts.
 		switch msg.String() {
@@ -141,6 +147,34 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Quit
 		case "ctrl+c":
 			return a, tea.Quit
+		case "ctrl+r":
+			// Refresh index.
+			cmds = append(cmds, a.statusBar.SetMessage("Refreshing index...", 2*time.Second))
+			cmds = append(cmds, a.refreshIndex())
+			return a, tea.Batch(cmds...)
+		case "ctrl+h":
+			// Toggle hidden files.
+			a.showHidden = !a.showHidden
+			status := "Hidden files: ON"
+			if !a.showHidden {
+				status = "Hidden files: OFF"
+			}
+			cmds = append(cmds, a.statusBar.SetMessage(status, 2*time.Second))
+			cmds = append(cmds, a.triggerSearch())
+			return a, tea.Batch(cmds...)
+		case "?":
+			if a.input.Value() == "" {
+				// Show help.
+				cmds = append(cmds, a.statusBar.SetMessage("Help overlay coming soon...", 2*time.Second))
+				return a, tea.Batch(cmds...)
+			}
+		case "1", "2", "3", "4", "5", "6":
+			if a.input.Value() == "" {
+				// Only switch tabs via numbers if input is empty.
+				var cmd tea.Cmd
+				a.tabBar, cmd = a.tabBar.Update(msg)
+				return a, cmd
+			}
 		case "ctrl+y":
 			if r, ok := a.resultList.Selected(); ok && r.FilePath != "" {
 				if err := clipboard.WriteAll(r.FilePath); err == nil {
@@ -273,6 +307,9 @@ func isPrintable(msg tea.Msg) bool {
 }
 
 // layout recalculates component sizes on terminal resize.
+// IndexUpdatedMsg is emitted when the index has been rebuilt.
+type IndexUpdatedMsg struct{}
+
 func (a *App) layout(w, h int) {
 	a.width = w
 	a.height = h
@@ -286,6 +323,18 @@ func (a *App) layout(w, h int) {
 		listH = 1
 	}
 	a.resultList.SetSize(innerW, listH)
+}
+
+func (a App) refreshIndex() tea.Cmd {
+	if a.index == nil {
+		return nil
+	}
+	root := a.index.Root()
+	return func() tea.Msg {
+		rules := search.LoadIgnoreFiles(root)
+		a.index.RebuildFrom(context.Background(), root, rules, search.WalkOptions{})
+		return IndexUpdatedMsg{}
+	}
 }
 
 func revealInFileManager(path string) error {
@@ -330,7 +379,7 @@ func (a App) triggerSearch() tea.Cmd {
 
 func (a App) triggerAllSearch() tea.Cmd {
 	query := a.input.Value()
-	includeHidden := !a.statusBar.ProjectOnly()
+	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
 	idx := a.index
 	extFilters := a.filterMenu.SelectedExtensions()
 
@@ -425,7 +474,7 @@ func (a App) triggerFileSearch() tea.Cmd {
 	query := a.input.Value()
 	tab := a.tabBar.Active()
 	extFilters := a.filterMenu.SelectedExtensions()
-	includeHidden := !a.statusBar.ProjectOnly()
+	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
 
 	return func() tea.Msg {
 		rs := idx.Search(search.SearchOptions{
@@ -442,7 +491,7 @@ func (a App) triggerFileSearch() tea.Cmd {
 func (a App) triggerSymbolSearch() tea.Cmd {
 	idx := a.index
 	query := a.input.Value()
-	includeHidden := !a.statusBar.ProjectOnly()
+	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
 
 	return func() tea.Msg {
 		rs := idx.SearchSymbols(query, 100, includeHidden)
@@ -453,7 +502,7 @@ func (a App) triggerSymbolSearch() tea.Cmd {
 func (a App) triggerClassSearch() tea.Cmd {
 	idx := a.index
 	query := a.input.Value()
-	includeHidden := !a.statusBar.ProjectOnly()
+	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
 
 	return func() tea.Msg {
 		rs := idx.SearchClasses(query, 100, includeHidden)
@@ -516,7 +565,7 @@ func (a App) searchActions(query string) []model.SearchResult {
 func (a App) triggerGrepSearch() tea.Cmd {
 	idx := a.index
 	query := a.input.Value()
-	includeHidden := !a.statusBar.ProjectOnly()
+	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
 	sc := a.searchCancel
 
 	return func() tea.Msg {
