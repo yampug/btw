@@ -90,6 +90,17 @@ func LoadIgnoreFiles(root string) *IgnoreRules {
 	return ir
 }
 
+// LoadPatterns adds patterns from a slice of strings.
+func (ir *IgnoreRules) LoadPatterns(patterns []string) {
+	for _, p := range patterns {
+		p = strings.TrimSpace(p)
+		if p == "" || strings.HasPrefix(p, "#") {
+			continue
+		}
+		ir.patterns = append(ir.patterns, parseLine(p))
+	}
+}
+
 // LoadNested parses a .gitignore found in a subdirectory.
 // Patterns are prefixed with the relative directory so they match correctly.
 func (ir *IgnoreRules) LoadNested(root, path string) {

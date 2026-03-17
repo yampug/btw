@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/bob/boomerang/internal/config"
 	"github.com/bob/boomerang/internal/model"
 	"github.com/bob/boomerang/internal/search"
 )
@@ -75,24 +76,36 @@ type App struct {
 	chosen         *model.SearchResult // set when user presses Enter
 	actionRegistry *ActionRegistry
 	showHidden     bool
+	cfg            *config.Config
 }
 
-// NewApp returns an initialized App with the given file index.
-func NewApp(idx *search.Index) App {
+// NewApp returns an initialized App with the given file index and config.
+func NewApp(idx *search.Index, cfg *config.Config) App {
+	if cfg == nil {
+		cfg = config.NewDefaultConfig()
+	}
+
 	fm := NewFilterMenu()
 	if idx != nil {
 		fm.SetExtensions(idx.Extensions())
 	}
+
+	sb := NewStatusBar()
+	if cfg.DefaultScope == "all" {
+		sb.SetProjectOnly(false)
+	}
+
 	return App{
 		tabBar:         NewTabBar(),
 		input:          NewSearchInput(),
 		resultList:     NewResultList(),
-		statusBar:      NewStatusBar(),
+		statusBar:      sb,
 		filterMenu:     fm,
 		index:          idx,
 		searchCancel:   &searchCanceler{},
 		actionRegistry: NewActionRegistry(),
-		showHidden:     false,
+		showHidden:     cfg.ShowHidden,
+		cfg:            cfg,
 	}
 }
 
@@ -335,6 +348,9 @@ func (a App) refreshIndex() tea.Cmd {
 	root := a.index.Root()
 	return func() tea.Msg {
 		rules := search.LoadIgnoreFiles(root)
+		if len(a.cfg.IgnorePatterns) > 0 {
+			rules.LoadPatterns(a.cfg.IgnorePatterns)
+		}
 		a.index.RebuildFrom(context.Background(), root, rules, search.WalkOptions{})
 		return IndexUpdatedMsg{}
 	}
@@ -386,6 +402,10 @@ func (a App) triggerAllSearch() tea.Cmd {
 	projectOnly := a.statusBar.ProjectOnly()
 	idx := a.index
 	extFilters := a.filterMenu.SelectedExtensions()
+	limit := a.cfg.MaxResults / 4 // split across 4 sections
+	if limit < 5 {
+		limit = 5
+	}
 
 	return func() tea.Msg {
 		var allItems []model.SearchResult
@@ -395,7 +415,7 @@ func (a App) triggerAllSearch() tea.Cmd {
 			Query:         query,
 			Tab:           model.TabFiles,
 			ExtFilters:    extFilters,
-			MaxResults:    5,
+			MaxResults:    limit,
 			IncludeHidden: includeHidden,
 			ProjectOnly:   projectOnly,
 		})
@@ -406,7 +426,7 @@ func (a App) triggerAllSearch() tea.Cmd {
 				SectionTab: model.TabFiles,
 			})
 			allItems = append(allItems, filesRs.Items...)
-			if filesRs.TotalMatched > 5 {
+			if filesRs.TotalMatched > limit {
 				allItems = append(allItems, model.SearchResult{
 					Name:       fmt.Sprintf("  … more Files (%d total)", filesRs.TotalMatched),
 					SectionTab: model.TabFiles,
@@ -415,7 +435,7 @@ func (a App) triggerAllSearch() tea.Cmd {
 		}
 
 		// Classes
-		classesRs := idx.SearchClasses(query, 5, includeHidden, projectOnly)
+		classesRs := idx.SearchClasses(query, limit, includeHidden, projectOnly)
 		if len(classesRs.Items) > 0 {
 			allItems = append(allItems, model.SearchResult{
 				Name:       "Classes",
@@ -423,7 +443,7 @@ func (a App) triggerAllSearch() tea.Cmd {
 				SectionTab: model.TabClasses,
 			})
 			allItems = append(allItems, classesRs.Items...)
-			if classesRs.TotalMatched > 5 {
+			if classesRs.TotalMatched > limit {
 				allItems = append(allItems, model.SearchResult{
 					Name:       fmt.Sprintf("  … more Classes (%d total)", classesRs.TotalMatched),
 					SectionTab: model.TabClasses,
@@ -432,7 +452,7 @@ func (a App) triggerAllSearch() tea.Cmd {
 		}
 
 		// Symbols
-		symbolsRs := idx.SearchSymbols(query, 5, includeHidden, projectOnly)
+		symbolsRs := idx.SearchSymbols(query, limit, includeHidden, projectOnly)
 		if len(symbolsRs.Items) > 0 {
 			allItems = append(allItems, model.SearchResult{
 				Name:       "Symbols",
@@ -440,7 +460,7 @@ func (a App) triggerAllSearch() tea.Cmd {
 				SectionTab: model.TabSymbols,
 			})
 			allItems = append(allItems, symbolsRs.Items...)
-			if symbolsRs.TotalMatched > 5 {
+			if symbolsRs.TotalMatched > limit {
 				allItems = append(allItems, model.SearchResult{
 					Name:       fmt.Sprintf("  … more Symbols (%d total)", symbolsRs.TotalMatched),
 					SectionTab: model.TabSymbols,
@@ -452,17 +472,17 @@ func (a App) triggerAllSearch() tea.Cmd {
 		actions := a.searchActions(query)
 		if len(actions) > 0 {
 			totalActions := len(actions)
-			limit := 5
-			if limit > totalActions {
-				limit = totalActions
+			aLimit := limit
+			if aLimit > totalActions {
+				aLimit = totalActions
 			}
 			allItems = append(allItems, model.SearchResult{
 				Name:       "Actions",
 				IsHeader:   true,
 				SectionTab: model.TabActions,
 			})
-			allItems = append(allItems, actions[:limit]...)
-			if totalActions > 5 {
+			allItems = append(allItems, actions[:aLimit]...)
+			if totalActions > limit {
 				allItems = append(allItems, model.SearchResult{
 					Name:       fmt.Sprintf("  … more Actions (%d total)", totalActions),
 					SectionTab: model.TabActions,
@@ -487,7 +507,7 @@ func (a App) triggerFileSearch() tea.Cmd {
 			Query:         query,
 			Tab:           tab,
 			ExtFilters:    extFilters,
-			MaxResults:    100,
+			MaxResults:    a.cfg.MaxResults,
 			IncludeHidden: includeHidden,
 			ProjectOnly:   projectOnly,
 		})
@@ -502,7 +522,7 @@ func (a App) triggerSymbolSearch() tea.Cmd {
 	projectOnly := a.statusBar.ProjectOnly()
 
 	return func() tea.Msg {
-		rs := idx.SearchSymbols(query, 100, includeHidden, projectOnly)
+		rs := idx.SearchSymbols(query, a.cfg.MaxResults, includeHidden, projectOnly)
 		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
 	}
 }
@@ -514,7 +534,7 @@ func (a App) triggerClassSearch() tea.Cmd {
 	projectOnly := a.statusBar.ProjectOnly()
 
 	return func() tea.Msg {
-		rs := idx.SearchClasses(query, 100, includeHidden, projectOnly)
+		rs := idx.SearchClasses(query, a.cfg.MaxResults, includeHidden, projectOnly)
 		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
 	}
 }
@@ -565,8 +585,8 @@ func (a App) searchActions(query string) []model.SearchResult {
 		return strings.ToLower(results[i].Name) < strings.ToLower(results[j].Name)
 	})
 
-	if len(results) > 100 {
-		results = results[:100]
+	if len(results) > a.cfg.MaxResults {
+		results = results[:a.cfg.MaxResults]
 	}
 	return results
 }
@@ -585,7 +605,7 @@ func (a App) triggerGrepSearch() tea.Cmd {
 		ch := search.Grep(ctx, idx, query, search.GrepOptions{
 			IncludeHidden: includeHidden,
 			ProjectOnly:   projectOnly,
-			MaxResults:    200,
+			MaxResults:    a.cfg.MaxResults,
 		})
 
 		var results []model.SearchResult

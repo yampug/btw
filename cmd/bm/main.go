@@ -2,24 +2,37 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/bob/boomerang/internal/config"
 	"github.com/bob/boomerang/internal/search"
 	"github.com/bob/boomerang/internal/tui"
 )
 
 func main() {
+	configPath := flag.String("config", "", "path to config file")
+	flag.Parse()
+
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: error loading config: %v\n", err)
+	}
+
 	cwd, _ := os.Getwd()
 	// Use CWD as the search root to satisfy "only go down the current cwd".
 	searchRoot := cwd
 	rules := search.LoadIgnoreFiles(searchRoot)
+	if len(cfg.IgnorePatterns) > 0 {
+		rules.LoadPatterns(cfg.IgnorePatterns)
+	}
 	idx := search.NewIndex()
 	idx.RebuildFrom(context.Background(), searchRoot, rules, search.WalkOptions{})
 
-	app := tui.NewApp(idx)
+	app := tui.NewApp(idx, cfg)
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	m, err := p.Run()
 	if err != nil {
@@ -44,7 +57,10 @@ func main() {
 	projectRoot := search.DetectRoot(searchRoot)
 
 	// Open the chosen file in $EDITOR or zed, falling back to printing the path.
-	editor := os.Getenv("EDITOR")
+	editor := cfg.Editor
+	if editor == "" {
+		editor = os.Getenv("EDITOR")
+	}
 	useZedFallback := false
 	if editor == "" {
 		editor = "zed"

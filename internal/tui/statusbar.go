@@ -59,6 +59,11 @@ func (s StatusBar) ProjectOnly() bool {
 	return s.projectOnly
 }
 
+// SetProjectOnly sets the scope toggle.
+func (s *StatusBar) SetProjectOnly(v bool) {
+	s.projectOnly = v
+}
+
 func (s StatusBar) Update(msg tea.Msg) (StatusBar, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
