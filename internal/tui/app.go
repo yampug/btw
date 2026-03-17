@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"context"
+	"sync"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -25,17 +28,43 @@ type OpenResultMsg struct {
 	Result model.SearchResult
 }
 
+// searchCanceler provides safe cancellation of in-flight searches.
+// It is a pointer-based shared state that survives Bubble Tea's value copies.
+type searchCanceler struct {
+	mu     sync.Mutex
+	cancel context.CancelFunc
+}
+
+func (sc *searchCanceler) Cancel() {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	if sc.cancel != nil {
+		sc.cancel()
+		sc.cancel = nil
+	}
+}
+
+func (sc *searchCanceler) Set(cancel context.CancelFunc) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	if sc.cancel != nil {
+		sc.cancel()
+	}
+	sc.cancel = cancel
+}
+
 // App is the top-level Bubble Tea model composing all TUI components.
 type App struct {
-	width      int
-	height     int
-	tabBar     TabBar
-	input      SearchInput
-	resultList ResultList
-	statusBar  StatusBar
-	filterMenu FilterMenu
-	index      *search.Index
-	chosen     *model.SearchResult // set when user presses Enter
+	width        int
+	height       int
+	tabBar       TabBar
+	input        SearchInput
+	resultList   ResultList
+	statusBar    StatusBar
+	filterMenu   FilterMenu
+	index        *search.Index
+	searchCancel *searchCanceler
+	chosen       *model.SearchResult // set when user presses Enter
 }
 
 // NewApp returns an initialized App with the given file index.
@@ -45,12 +74,13 @@ func NewApp(idx *search.Index) App {
 		fm.SetExtensions(idx.Extensions())
 	}
 	return App{
-		tabBar:     NewTabBar(),
-		input:      NewSearchInput(),
-		resultList: NewResultList(),
-		statusBar:  NewStatusBar(),
-		filterMenu: fm,
-		index:      idx,
+		tabBar:       NewTabBar(),
+		input:        NewSearchInput(),
+		resultList:   NewResultList(),
+		statusBar:    NewStatusBar(),
+		filterMenu:   fm,
+		index:        idx,
+		searchCancel: &searchCanceler{},
 	}
 }
 
@@ -166,9 +196,20 @@ func (a *App) layout(w, h int) {
 
 // triggerSearch returns a cmd that queries the index and produces a ResultsMsg.
 func (a App) triggerSearch() tea.Cmd {
+	a.searchCancel.Cancel()
+
 	if a.index == nil {
 		return func() tea.Msg { return ResultsMsg{} }
 	}
+
+	tab := a.tabBar.Active()
+	if tab == model.TabText {
+		return a.triggerGrepSearch()
+	}
+	return a.triggerFileSearch()
+}
+
+func (a App) triggerFileSearch() tea.Cmd {
 	idx := a.index
 	query := a.input.Value()
 	tab := a.tabBar.Active()
@@ -184,6 +225,30 @@ func (a App) triggerSearch() tea.Cmd {
 			IncludeHidden: includeHidden,
 		})
 		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
+	}
+}
+
+func (a App) triggerGrepSearch() tea.Cmd {
+	idx := a.index
+	query := a.input.Value()
+	includeHidden := !a.statusBar.ProjectOnly()
+	sc := a.searchCancel
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithCancel(context.Background())
+		sc.Set(cancel)
+
+		ch := search.Grep(ctx, idx, query, search.GrepOptions{
+			IncludeHidden: includeHidden,
+			MaxResults:    200,
+		})
+
+		var results []model.SearchResult
+		for m := range ch {
+			results = append(results, search.GrepMatchToResult(m))
+		}
+
+		return ResultsMsg{Items: results, TotalMatched: len(results)}
 	}
 }
 

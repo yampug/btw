@@ -235,6 +235,15 @@ func (idx *Index) candidatesFiltered(opts SearchOptions, exts []string) []int {
 }
 
 
+// Files returns a snapshot of the indexed file entries.
+func (idx *Index) Files() []FileEntry {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	result := make([]FileEntry, len(idx.files))
+	copy(result, idx.files)
+	return result
+}
+
 func (idx *Index) toResult(entry FileEntry, score int, ranges []model.MatchRange) model.SearchResult {
 	icon := defaultIcon
 	iconColor := defaultIconColor
