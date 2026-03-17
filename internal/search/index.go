@@ -45,6 +45,14 @@ type Index struct {
 	nameIndex map[string][]int // lowercase filename → indices
 	extIndex  map[string][]int // extension (e.g. ".go") → indices
 	symbols   []Symbol         // populated by ExtractSymbols
+	root      string
+}
+
+// Root returns the project root path.
+func (idx *Index) Root() string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	return idx.root
 }
 
 // NewIndex returns an empty Index.
@@ -85,6 +93,9 @@ func (idx *Index) BuildFrom(ch <-chan FileEntry) {
 // RebuildFrom rebuilds the index from a new walk, replacing existing data.
 // Can be called while readers are using the old index (swap is atomic under lock).
 func (idx *Index) RebuildFrom(ctx context.Context, root string, rules *IgnoreRules, opts WalkOptions) {
+	idx.mu.Lock()
+	idx.root = root
+	idx.mu.Unlock()
 	ch := Walk(ctx, root, rules, opts)
 	idx.BuildFrom(ch)
 }

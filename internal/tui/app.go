@@ -2,10 +2,16 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -93,6 +99,11 @@ func (a App) Chosen() *model.SearchResult {
 	return a.chosen
 }
 
+// LineNum returns the line number parsed from the input, if any.
+func (a App) LineNum() int {
+	return a.input.LineNum()
+}
+
 func (a App) Init() tea.Cmd {
 	return tea.Batch(a.input.Focus(), a.triggerSearch())
 }
@@ -130,6 +141,33 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Quit
 		case "ctrl+c":
 			return a, tea.Quit
+		case "ctrl+y":
+			if r, ok := a.resultList.Selected(); ok && r.FilePath != "" {
+				if err := clipboard.WriteAll(r.FilePath); err == nil {
+					cmds = append(cmds, a.statusBar.SetMessage("Copied absolute path!", 2*time.Second))
+				}
+			}
+			return a, tea.Batch(cmds...)
+		case "ctrl+shift+y", "ctrl+Y": // Bubble Tea often sends Ctrl+Y for Ctrl+Shift+Y
+			if r, ok := a.resultList.Selected(); ok && r.FilePath != "" {
+				rel := r.FilePath
+				if a.index != nil {
+					if rPath, err := filepath.Rel(a.index.Root(), r.FilePath); err == nil {
+						rel = rPath
+					}
+				}
+				if err := clipboard.WriteAll(rel); err == nil {
+					cmds = append(cmds, a.statusBar.SetMessage("Copied relative path!", 2*time.Second))
+				}
+			}
+			return a, tea.Batch(cmds...)
+		case "ctrl+o":
+			if r, ok := a.resultList.Selected(); ok && r.FilePath != "" {
+				if err := revealInFileManager(r.FilePath); err == nil {
+					cmds = append(cmds, a.statusBar.SetMessage("Revealed in file manager", 2*time.Second))
+				}
+			}
+			return a, tea.Batch(cmds...)
 		case "enter":
 			if a.filterMenu.Visible() {
 				// Let filter menu handle it.
@@ -248,6 +286,21 @@ func (a *App) layout(w, h int) {
 		listH = 1
 	}
 	a.resultList.SetSize(innerW, listH)
+}
+
+func revealInFileManager(path string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", "-R", path)
+	case "windows":
+		cmd = exec.Command("explorer", "/select,", path)
+	default: // linux, etc.
+		// xdg-open doesn't have a direct "select" or "reveal" flag in many cases,
+		// but opening the directory is a common fallback.
+		cmd = exec.Command("xdg-open", filepath.Dir(path))
+	}
+	return cmd.Run()
 }
 
 // triggerSearch returns a cmd that queries the index and produces a ResultsMsg.

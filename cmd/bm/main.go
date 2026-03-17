@@ -35,6 +35,10 @@ func main() {
 	if chosen == nil {
 		return
 	}
+	line := chosen.Line
+	if line == 0 {
+		line = a.LineNum()
+	}
 
 	// For Zed, we still try to detect the project root so it opens with full context.
 	projectRoot := search.DetectRoot(searchRoot)
@@ -50,16 +54,16 @@ func main() {
 	var args []string
 	if editor == "zed" {
 		path := chosen.FilePath
-		if chosen.Line > 0 {
-			path = fmt.Sprintf("%s:%d", path, chosen.Line)
+		if line > 0 {
+			path = fmt.Sprintf("%s:%d", path, line)
 		}
 		// Passing the project root helps Zed find the go.mod for gopls.
 		args = []string{projectRoot, path}
 	} else {
 		args = []string{chosen.FilePath}
-		if chosen.Line > 0 {
+		if line > 0 {
 			// Most editors accept +N to jump to a line.
-			args = []string{fmt.Sprintf("+%d", chosen.Line), chosen.FilePath}
+			args = []string{fmt.Sprintf("+%d", line), chosen.FilePath}
 		}
 	}
 
