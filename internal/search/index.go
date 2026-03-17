@@ -99,8 +99,9 @@ func (idx *Index) Len() int {
 type SearchOptions struct {
 	Query       string
 	Tab         model.Tab
-	ExtFilter   string // e.g. ".go" — empty means no filter
-	MaxResults  int    // 0 means no limit
+	ExtFilter   string   // e.g. ".go" — single ext (legacy, used by TUI badge)
+	ExtFilters  []string // multiple extensions (e.g. [".go", ".rs"])
+	MaxResults  int      // 0 means no limit
 }
 
 // Search returns ranked SearchResult entries matching the given options.
@@ -115,10 +116,20 @@ func (idx *Index) Search(opts SearchOptions) []model.SearchResult {
 		opts.MaxResults = 100
 	}
 
-	pq := ParseQuery(opts.Query)
+	// Parse inline extension filters from query.
+	fr := ParseFilters(opts.Query)
+	queryForMatch := fr.Query
+
+	// Merge inline filters with explicit filters.
+	allExts := append(opts.ExtFilters, fr.Extensions...)
+	if opts.ExtFilter != "" {
+		allExts = append(allExts, strings.ToLower(opts.ExtFilter))
+	}
+
+	pq := ParseQuery(queryForMatch)
 
 	// Determine candidate set.
-	candidates := idx.candidates(opts)
+	candidates := idx.candidatesFiltered(opts, allExts)
 
 	var results []model.SearchResult
 	for _, i := range candidates {
@@ -155,32 +166,30 @@ func (idx *Index) Search(opts SearchOptions) []model.SearchResult {
 	return results
 }
 
-// candidates returns the set of file indices to search over.
-func (idx *Index) candidates(opts SearchOptions) []int {
-	// Extension filter: O(1) lookup.
-	if opts.ExtFilter != "" {
-		ext := strings.ToLower(opts.ExtFilter)
-		return idx.extIndex[ext]
+// candidatesFiltered returns the set of file indices to search over,
+// applying extension filters if provided.
+func (idx *Index) candidatesFiltered(opts SearchOptions, exts []string) []int {
+	if len(exts) > 0 {
+		// Collect unique indices from all matching extensions.
+		seen := make(map[int]bool)
+		var result []int
+		for _, ext := range exts {
+			for _, i := range idx.extIndex[strings.ToLower(ext)] {
+				if !seen[i] {
+					seen[i] = true
+					result = append(result, i)
+				}
+			}
+		}
+		return result
 	}
 
-	// Tab-based filtering.
-	switch opts.Tab {
-	case model.TabFiles, model.TabAll:
-		// All files.
-		all := make([]int, len(idx.files))
-		for i := range all {
-			all[i] = i
-		}
-		return all
-	default:
-		// Other tabs (Classes, Symbols, etc.) will be handled in later epics.
-		// For now, return all files.
-		all := make([]int, len(idx.files))
-		for i := range all {
-			all[i] = i
-		}
-		return all
+	// No extension filter — return all files.
+	all := make([]int, len(idx.files))
+	for i := range all {
+		all[i] = i
 	}
+	return all
 }
 
 

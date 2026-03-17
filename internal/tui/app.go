@@ -31,6 +31,7 @@ type App struct {
 	input      SearchInput
 	resultList ResultList
 	statusBar  StatusBar
+	filterMenu FilterMenu
 	chosen     *model.SearchResult // set when user presses Enter
 }
 
@@ -41,6 +42,7 @@ func NewApp() App {
 		input:      NewSearchInput(),
 		resultList: NewResultList(),
 		statusBar:  NewStatusBar(),
+		filterMenu: NewFilterMenu(),
 	}
 }
 
@@ -59,9 +61,25 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "esc", "ctrl+c":
+		case "ctrl+f":
+			a.filterMenu.Toggle()
+			if a.filterMenu.Visible() {
+				a.filterMenu.SetSize(a.width-4, a.height-8)
+			}
+			return a, nil
+		case "esc":
+			if a.filterMenu.Visible() {
+				a.filterMenu.Toggle()
+				return a, nil
+			}
+			return a, tea.Quit
+		case "ctrl+c":
 			return a, tea.Quit
 		case "enter":
+			if a.filterMenu.Visible() {
+				// Let filter menu handle it.
+				break
+			}
 			if r, ok := a.resultList.Selected(); ok {
 				a.chosen = &r
 				return a, tea.Quit
@@ -81,23 +99,34 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ScopeChangedMsg:
 		a.resultList.SetLoading(true)
 		cmds = append(cmds, a.resultList.SpinnerTick(), a.triggerSearch())
+	case FilterChangedMsg:
+		badge := a.filterMenu.BadgeText()
+		a.input.SetFilter(badge)
+		a.resultList.SetLoading(true)
+		cmds = append(cmds, a.resultList.SpinnerTick(), a.triggerSearch())
 	}
 
 	var cmd tea.Cmd
 
-	if isTabKey(msg) {
-		a.tabBar, cmd = a.tabBar.Update(msg)
+	// When filter menu is visible, route keys there instead of other components.
+	if a.filterMenu.Visible() {
+		a.filterMenu, cmd = a.filterMenu.Update(msg)
+		cmds = append(cmds, cmd)
+	} else {
+		if isTabKey(msg) {
+			a.tabBar, cmd = a.tabBar.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+
+		a.input, cmd = a.input.Update(msg)
+		cmds = append(cmds, cmd)
+
+		a.resultList, cmd = a.resultList.Update(msg)
+		cmds = append(cmds, cmd)
+
+		a.statusBar, cmd = a.statusBar.Update(msg)
 		cmds = append(cmds, cmd)
 	}
-
-	a.input, cmd = a.input.Update(msg)
-	cmds = append(cmds, cmd)
-
-	a.resultList, cmd = a.resultList.Update(msg)
-	cmds = append(cmds, cmd)
-
-	a.statusBar, cmd = a.statusBar.Update(msg)
-	cmds = append(cmds, cmd)
 
 	// Sync status bar counts.
 	total := a.resultList.Len()
@@ -157,7 +186,15 @@ func (a App) View() string {
 		a.resultList.View() + "\n" +
 		a.statusBar.View()
 
-	return container.Render(content)
+	rendered := container.Render(content)
+
+	// Overlay filter menu if visible.
+	if a.filterMenu.Visible() {
+		overlay := a.filterMenu.View()
+		rendered = lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, overlay)
+	}
+
+	return rendered
 }
 
 // isTabKey returns true if the message is a key that should route to the tab bar.
