@@ -5,6 +5,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/bob/boomerang/internal/model"
+	"github.com/bob/boomerang/internal/search"
 )
 
 // Adaptive colors that work in both dark and light terminal themes.
@@ -15,7 +16,8 @@ var (
 
 // ResultsMsg delivers search results to the TUI.
 type ResultsMsg struct {
-	Items []model.SearchResult
+	Items        []model.SearchResult
+	TotalMatched int
 }
 
 // OpenResultMsg is emitted when the user presses Enter on a selected result.
@@ -32,17 +34,23 @@ type App struct {
 	resultList ResultList
 	statusBar  StatusBar
 	filterMenu FilterMenu
+	index      *search.Index
 	chosen     *model.SearchResult // set when user presses Enter
 }
 
-// NewApp returns an initialized App.
-func NewApp() App {
+// NewApp returns an initialized App with the given file index.
+func NewApp(idx *search.Index) App {
+	fm := NewFilterMenu()
+	if idx != nil {
+		fm.SetExtensions(idx.Extensions())
+	}
 	return App{
 		tabBar:     NewTabBar(),
 		input:      NewSearchInput(),
 		resultList: NewResultList(),
 		statusBar:  NewStatusBar(),
-		filterMenu: NewFilterMenu(),
+		filterMenu: fm,
+		index:      idx,
 	}
 }
 
@@ -52,7 +60,7 @@ func (a App) Chosen() *model.SearchResult {
 }
 
 func (a App) Init() tea.Cmd {
-	return a.input.Focus()
+	return tea.Batch(a.input.Focus(), a.triggerSearch())
 }
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -90,6 +98,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.layout(msg.Width, msg.Height)
 	case ResultsMsg:
 		a.resultList.SetItems(msg.Items)
+		a.resultList.SetTotalMatched(msg.TotalMatched)
 	case TabChangedMsg:
 		a.resultList.SetLoading(true)
 		cmds = append(cmds, a.resultList.SpinnerTick(), a.triggerSearch())
@@ -155,12 +164,26 @@ func (a *App) layout(w, h int) {
 	a.resultList.SetSize(innerW, listH)
 }
 
-// triggerSearch returns a cmd that will produce a ResultsMsg.
-// This is a placeholder until the search engine is wired in Epic 3.
+// triggerSearch returns a cmd that queries the index and produces a ResultsMsg.
 func (a App) triggerSearch() tea.Cmd {
+	if a.index == nil {
+		return func() tea.Msg { return ResultsMsg{} }
+	}
+	idx := a.index
+	query := a.input.Value()
+	tab := a.tabBar.Active()
+	extFilters := a.filterMenu.SelectedExtensions()
+	includeHidden := !a.statusBar.ProjectOnly()
+
 	return func() tea.Msg {
-		// Placeholder: return empty results. The real search engine will replace this.
-		return ResultsMsg{Items: nil}
+		rs := idx.Search(search.SearchOptions{
+			Query:         query,
+			Tab:           tab,
+			ExtFilters:    extFilters,
+			MaxResults:    100,
+			IncludeHidden: includeHidden,
+		})
+		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
 	}
 }
 

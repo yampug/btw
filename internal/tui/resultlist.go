@@ -20,13 +20,14 @@ var (
 
 // ResultList is a scrollable, selectable list of search results.
 type ResultList struct {
-	items    []model.SearchResult
-	cursor   int // selected index
-	offset   int // first visible row
-	height   int // visible rows
-	width    int
-	loading  bool
-	spinner  spinner.Model
+	items        []model.SearchResult
+	cursor       int // selected index
+	offset       int // first visible row
+	height       int // visible rows
+	width        int
+	loading      bool
+	spinner      spinner.Model
+	totalMatched int // total before MaxResults truncation
 }
 
 // NewResultList returns an initialized ResultList.
@@ -49,6 +50,11 @@ func (r *ResultList) SetItems(items []model.SearchResult) {
 	r.cursor = 0
 	r.offset = 0
 	r.loading = false
+}
+
+// SetTotalMatched stores the total match count (before truncation).
+func (r *ResultList) SetTotalMatched(n int) {
+	r.totalMatched = n
 }
 
 // SetLoading enables or disables the loading spinner.
@@ -169,6 +175,13 @@ func (r ResultList) View() string {
 	for i, item := range visible {
 		idx := r.offset + i
 		rows = append(rows, r.renderRow(item, idx == r.cursor))
+	}
+
+	// Show "more..." indicator when results are truncated.
+	truncated := r.totalMatched > len(r.items)
+	if truncated && end >= len(r.items) && len(rows) < r.height {
+		moreText := fmt.Sprintf("  … %d more results", r.totalMatched-len(r.items))
+		rows = append(rows, lipgloss.NewStyle().Foreground(dimColor).Italic(true).Render(moreText))
 	}
 
 	// Pad remaining height with empty lines.

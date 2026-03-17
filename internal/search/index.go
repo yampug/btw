@@ -102,13 +102,20 @@ type SearchOptions struct {
 	ExtFilter   string   // e.g. ".go" — single ext (legacy, used by TUI badge)
 	ExtFilters  []string // multiple extensions (e.g. [".go", ".rs"])
 	MaxResults  int      // 0 means no limit
+	IncludeHidden bool   // include hidden files in results
+}
+
+// SearchResultSet holds results plus metadata for the UI.
+type SearchResultSet struct {
+	Items        []model.SearchResult
+	TotalMatched int // count before MaxResults truncation
 }
 
 // Search returns ranked SearchResult entries matching the given options.
 // Uses FuzzyMatch for matching and Score for contextual ranking.
 // Queries containing `/` are handled as path-aware matches.
 // A `:N` suffix is stripped and stored as LineNum on results.
-func (idx *Index) Search(opts SearchOptions) []model.SearchResult {
+func (idx *Index) Search(opts SearchOptions) SearchResultSet {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
@@ -132,8 +139,21 @@ func (idx *Index) Search(opts SearchOptions) []model.SearchResult {
 	candidates := idx.candidatesFiltered(opts, allExts)
 
 	var results []model.SearchResult
-	for _, i := range candidates {
-		entry := idx.files[i]
+	for _, ci := range candidates {
+		entry := idx.files[ci]
+
+		// Skip hidden files unless requested.
+		if !opts.IncludeHidden && strings.HasPrefix(entry.Name, ".") {
+			continue
+		}
+
+		// Empty query: return all candidates (sorted by mod time later).
+		if strings.TrimSpace(pq.Query) == "" {
+			r := idx.toResult(entry, 0, nil)
+			r.Line = pq.LineNum
+			results = append(results, r)
+			continue
+		}
 
 		var mr MatchResult
 		if pq.IsPath {
@@ -158,12 +178,34 @@ func (idx *Index) Search(opts SearchOptions) []model.SearchResult {
 		results = append(results, r)
 	}
 
-	RankResults(results)
+	// For empty queries, sort by modification time (most recent first).
+	if strings.TrimSpace(pq.Query) == "" {
+		idx.sortByModTime(results)
+	} else {
+		RankResults(results)
+	}
 
+	totalMatched := len(results)
 	if len(results) > opts.MaxResults {
 		results = results[:opts.MaxResults]
 	}
-	return results
+	return SearchResultSet{Items: results, TotalMatched: totalMatched}
+}
+
+// sortByModTime sorts results by the underlying file's modification time (newest first).
+func (idx *Index) sortByModTime(results []model.SearchResult) {
+	// Build a map from FilePath → ModTime for the sort.
+	modTimes := make(map[string]int64, len(idx.files))
+	for _, f := range idx.files {
+		modTimes[f.Path] = f.ModTime.UnixNano()
+	}
+
+	n := len(results)
+	for i := 1; i < n; i++ {
+		for j := i; j > 0 && modTimes[results[j].FilePath] > modTimes[results[j-1].FilePath]; j-- {
+			results[j], results[j-1] = results[j-1], results[j]
+		}
+	}
 }
 
 // candidatesFiltered returns the set of file indices to search over,

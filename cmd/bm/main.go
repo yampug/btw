@@ -1,16 +1,24 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/bob/boomerang/internal/search"
 	"github.com/bob/boomerang/internal/tui"
 )
 
 func main() {
-	app := tui.NewApp()
+	cwd, _ := os.Getwd()
+	root := search.DetectRoot(cwd)
+	rules := search.LoadIgnoreFiles(root)
+	idx := search.NewIndex()
+	idx.RebuildFrom(context.Background(), root, rules, search.WalkOptions{})
+
+	app := tui.NewApp(idx)
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	m, err := p.Run()
 	if err != nil {

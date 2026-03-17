@@ -127,7 +127,7 @@ func TestIndex_SearchPathQuery(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "cmd/main", Tab: model.TabAll})
+	results := idx.Search(SearchOptions{Query: "cmd/main", Tab: model.TabAll}).Items
 	if len(results) == 0 {
 		t.Fatal("expected results for path query")
 	}
@@ -142,7 +142,7 @@ func TestIndex_SearchPathQueryWithLineNum(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "cmd/main.go:42", Tab: model.TabAll})
+	results := idx.Search(SearchOptions{Query: "cmd/main.go:42", Tab: model.TabAll}).Items
 	if len(results) == 0 {
 		t.Fatal("expected results")
 	}
@@ -157,7 +157,7 @@ func TestIndex_SearchSimpleQueryWithLineNum(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "main.go:99", Tab: model.TabAll})
+	results := idx.Search(SearchOptions{Query: "main.go:99", Tab: model.TabAll}).Items
 	if len(results) == 0 {
 		t.Fatal("expected results")
 	}
@@ -172,7 +172,7 @@ func TestIndex_PathQueryHighlightsDetail(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "internal/search/match", Tab: model.TabAll})
+	results := idx.Search(SearchOptions{Query: "internal/search/match", Tab: model.TabAll}).Items
 	if len(results) == 0 {
 		t.Fatal("expected results")
 	}
