@@ -3,7 +3,7 @@ package search
 import (
 	"strings"
 
-	"github.com/bob/boomerang/internal/model"
+	"github.com/yampug/btw/internal/model"
 )
 
 // ScoreParams holds contextual information used to refine a match score.

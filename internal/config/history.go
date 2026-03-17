@@ -28,10 +28,10 @@ type History struct {
 	path         string
 }
 
-// LoadHistory loads history from ~/.config/boomerang/history.json.
+// LoadHistory loads history from ~/.config/btw/history.json.
 func LoadHistory() (*History, error) {
 	home, _ := os.UserHomeDir()
-	path := filepath.Join(home, ".config", "boomerang", "history.json")
+	path := filepath.Join(home, ".config", "btw", "history.json")
 	
 	h := &History{
 		path:         path,

@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config holds user preferences for boomerang.
+// Config holds user preferences for btw.
 type Config struct {
 	Theme          string            `yaml:"theme"`           // dark | light | auto
 	Editor         string            `yaml:"editor"`          // overrides $EDITOR
@@ -32,7 +32,7 @@ func NewDefaultConfig() *Config {
 }
 
 // Load loads the configuration from disk.
-// It checks the provided path, then ~/.config/boomerang/config.yaml, then ~/.boomerang.yaml.
+// It checks the provided path, then ~/.config/btw/config.yaml, then ~/.btw.yaml.
 func Load(customPath string) (*Config, error) {
 	cfg := NewDefaultConfig()
 
@@ -43,8 +43,8 @@ func Load(customPath string) (*Config, error) {
 
 	home, _ := os.UserHomeDir()
 	if home != "" {
-		paths = append(paths, filepath.Join(home, ".config", "boomerang", "config.yaml"))
-		paths = append(paths, filepath.Join(home, ".boomerang.yaml"))
+		paths = append(paths, filepath.Join(home, ".config", "btw", "config.yaml"))
+		paths = append(paths, filepath.Join(home, ".btw.yaml"))
 	}
 
 	var lastErr error

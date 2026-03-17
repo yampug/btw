@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bob/boomerang/internal/config"
-	"github.com/bob/boomerang/internal/model"
+	"github.com/yampug/btw/internal/config"
+	"github.com/yampug/btw/internal/model"
 )
 
 // fileIconMap maps common extensions to an icon and color.

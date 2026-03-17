@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/bob/boomerang/internal/model"
+	"github.com/yampug/btw/internal/model"
 )
 
 func TestActionRegistry(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bob/boomerang/internal/model"
+	"github.com/yampug/btw/internal/model"
 )
 
 func buildGrepTestDir(t *testing.T) (string, *Index) {

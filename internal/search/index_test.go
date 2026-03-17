@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bob/boomerang/internal/model"
+	"github.com/yampug/btw/internal/model"
 )
 
 func buildTestIndex(entries []FileEntry) *Index {

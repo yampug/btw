@@ -3,7 +3,7 @@ package search
 import (
 	"testing"
 
-	"github.com/bob/boomerang/internal/model"
+	"github.com/yampug/btw/internal/model"
 )
 
 func score(query, candidate, relPath string) int {

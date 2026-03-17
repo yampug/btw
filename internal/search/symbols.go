@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bob/boomerang/internal/model"
+	"github.com/yampug/btw/internal/model"
 )
 
 // SymbolKind classifies the type of a code symbol.

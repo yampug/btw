@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/bob/boomerang/internal/config"
-	"github.com/bob/boomerang/internal/model"
-	"github.com/bob/boomerang/internal/search"
-	"github.com/bob/boomerang/internal/tui"
+	"github.com/yampug/btw/internal/config"
+	"github.com/yampug/btw/internal/model"
+	"github.com/yampug/btw/internal/search"
+	"github.com/yampug/btw/internal/tui"
 )
 
 var (

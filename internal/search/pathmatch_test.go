@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/bob/boomerang/internal/model"
+	"github.com/yampug/btw/internal/model"
 )
 
 // --- ParseQuery tests ---

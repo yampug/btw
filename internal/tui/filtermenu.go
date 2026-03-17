@@ -7,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/bob/boomerang/internal/search"
+	"github.com/yampug/btw/internal/search"
 )
 
 // FilterChangedMsg is emitted when the extension filter selection changes.

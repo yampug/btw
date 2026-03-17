@@ -15,9 +15,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/bob/boomerang/internal/config"
-	"github.com/bob/boomerang/internal/model"
-	"github.com/bob/boomerang/internal/search"
+	"github.com/yampug/btw/internal/config"
+	"github.com/yampug/btw/internal/model"
+	"github.com/yampug/btw/internal/search"
 )
 
 // SearchID tracks search sessions to avoid stale results.

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/bob/boomerang/internal/model"
+	"github.com/yampug/btw/internal/model"
 )
 
 // MatchResult holds the outcome of matching a query against a candidate.

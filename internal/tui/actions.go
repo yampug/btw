@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"github.com/bob/boomerang/internal/model"
+	"github.com/yampug/btw/internal/model"
 )
 
 // Action represents a user-executable action in the Actions tab.
