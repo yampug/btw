@@ -42,7 +42,7 @@ func TestIndex_SearchExact(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "main.go", Tab: model.TabAll}).Items
+	results := idx.Search(context.Background(), SearchOptions{Query: "main.go", Tab: model.TabAll}).Items
 	if len(results) == 0 {
 		t.Fatal("expected results")
 	}
@@ -62,7 +62,7 @@ func TestIndex_SearchPrefix(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "con", Tab: model.TabAll}).Items
+	results := idx.Search(context.Background(), SearchOptions{Query: "con", Tab: model.TabAll}).Items
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
@@ -80,7 +80,7 @@ func TestIndex_SearchSubstring(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "odel", Tab: model.TabAll}).Items
+	results := idx.Search(context.Background(), SearchOptions{Query: "odel", Tab: model.TabAll}).Items
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -96,7 +96,7 @@ func TestIndex_SearchSubsequence(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "mgo", Tab: model.TabAll}).Items
+	results := idx.Search(context.Background(), SearchOptions{Query: "mgo", Tab: model.TabAll}).Items
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -114,7 +114,7 @@ func TestIndex_ExtFilter(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "", Tab: model.TabAll, ExtFilter: ".go"}).Items
+	results := idx.Search(context.Background(), SearchOptions{Query: "", Tab: model.TabAll, ExtFilter: ".go"}).Items
 	if len(results) != 2 {
 		t.Fatalf("expected 2 .go results, got %d", len(results))
 	}
@@ -127,7 +127,7 @@ func TestIndex_EmptyQuery(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "", Tab: model.TabAll}).Items
+	results := idx.Search(context.Background(), SearchOptions{Query: "", Tab: model.TabAll}).Items
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results for empty query, got %d", len(results))
 	}
@@ -139,7 +139,7 @@ func TestIndex_NoMatch(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "zzzzz", Tab: model.TabAll}).Items
+	results := idx.Search(context.Background(), SearchOptions{Query: "zzzzz", Tab: model.TabAll}).Items
 	if len(results) != 0 {
 		t.Fatalf("expected 0 results, got %d", len(results))
 	}
@@ -155,7 +155,7 @@ func TestIndex_MaxResults(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "file", Tab: model.TabAll, MaxResults: 10}).Items
+	results := idx.Search(context.Background(), SearchOptions{Query: "file", Tab: model.TabAll, MaxResults: 10}).Items
 	if len(results) != 10 {
 		t.Fatalf("expected 10 results, got %d", len(results))
 	}
@@ -169,7 +169,7 @@ func TestIndex_IconsAssigned(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "", Tab: model.TabAll}).Items
+	results := idx.Search(context.Background(), SearchOptions{Query: "", Tab: model.TabAll}).Items
 	for _, r := range results {
 		if r.Icon == "" {
 			t.Errorf("expected icon for %s", r.Name)
@@ -196,7 +196,7 @@ func TestIndex_ConcurrentReads(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 100 {
-				results := idx.Search(SearchOptions{Query: "f", Tab: model.TabAll}).Items
+				results := idx.Search(context.Background(), SearchOptions{Query: "f", Tab: model.TabAll}).Items
 				if len(results) == 0 {
 					t.Error("expected results from concurrent read")
 				}

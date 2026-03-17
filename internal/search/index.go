@@ -131,7 +131,7 @@ type SearchResultSet struct {
 // Uses FuzzyMatch for matching and Score for contextual ranking.
 // Queries containing `/` are handled as path-aware matches.
 // A `:N` suffix is stripped and stored as LineNum on results.
-func (idx *Index) Search(opts SearchOptions) SearchResultSet {
+func (idx *Index) Search(ctx context.Context, opts SearchOptions) SearchResultSet {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
@@ -155,7 +155,11 @@ func (idx *Index) Search(opts SearchOptions) SearchResultSet {
 	candidates := idx.candidatesFiltered(opts, allExts)
 
 	var results []model.SearchResult
-	for _, ci := range candidates {
+	for i, ci := range candidates {
+		if i%100 == 0 && ctx != nil && ctx.Err() != nil {
+			return SearchResultSet{}
+		}
+
 		entry := idx.files[ci]
 
 		// Skip hidden files unless requested.
@@ -232,21 +236,20 @@ func isVendored(relPath string) bool {
 }
 
 // SearchSymbols returns ranked symbols matching the query.
-func (idx *Index) SearchSymbols(query string, maxResults int, includeHidden bool, projectOnly bool, history *config.History) SearchResultSet {
+func (idx *Index) SearchSymbols(ctx context.Context, query string, maxResults int, includeHidden bool, projectOnly bool, history *config.History) SearchResultSet {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
 	var results []model.SearchResult
-	for _, s := range idx.symbols {
+	for i, s := range idx.symbols {
+		if i%100 == 0 && ctx != nil && ctx.Err() != nil {
+			return SearchResultSet{}
+		}
+
 		if !includeHidden && strings.HasPrefix(filepath.Base(s.FilePath), ".") {
 			continue
 		}
 		if projectOnly {
-			// Find the relative path to check for vendor/etc.
-			// This is a bit expensive without relPath stored in Symbol.
-			// For now, let's assume Symbol has enough info or we can get it.
-			// Actually Symbols are extracted from files in the index, so we can check
-			// their path against the root.
 			rel, err := filepath.Rel(idx.root, s.FilePath)
 			if err == nil && isVendored(rel) {
 				continue
@@ -283,12 +286,16 @@ func (idx *Index) SearchSymbols(query string, maxResults int, includeHidden bool
 }
 
 // SearchClasses returns only type-level symbols matching the query.
-func (idx *Index) SearchClasses(query string, maxResults int, includeHidden bool, projectOnly bool, history *config.History) SearchResultSet {
+func (idx *Index) SearchClasses(ctx context.Context, query string, maxResults int, includeHidden bool, projectOnly bool, history *config.History) SearchResultSet {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
 	var results []model.SearchResult
-	for _, s := range idx.symbols {
+	for i, s := range idx.symbols {
+		if i%100 == 0 && ctx != nil && ctx.Err() != nil {
+			return SearchResultSet{}
+		}
+
 		if !isClassLike(s.Kind) {
 			continue
 		}

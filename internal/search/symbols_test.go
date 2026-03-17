@@ -340,7 +340,7 @@ type MatchResult struct {}
 `,
 	})
 
-	results := idx.SearchSymbols("NM", 100, false).Items
+	results := idx.SearchSymbols(context.Background(), "NM", 100, false, false, nil).Items
 	if len(results) == 0 {
 		t.Fatal("expected CamelCase match for 'NM' → NewMatcher")
 	}
@@ -365,7 +365,7 @@ func Alpha() {}
 `,
 	})
 
-	results := idx.SearchSymbols("", 100, false).Items
+	results := idx.SearchSymbols(context.Background(), "", 100, false, false, nil).Items
 	if len(results) < 2 {
 		t.Fatalf("expected at least 2 results, got %d", len(results))
 	}
@@ -387,7 +387,7 @@ func E() {}
 `,
 	})
 
-	rs := idx.SearchSymbols("", 3, false)
+	rs := idx.SearchSymbols(context.Background(), "", 3, false, false, nil)
 	if len(rs.Items) != 3 {
 		t.Errorf("expected 3 results, got %d", len(rs.Items))
 	}
@@ -405,7 +405,7 @@ type Matcher struct {}
 `,
 	})
 
-	results := idx.SearchSymbols("", 100, false).Items
+	results := idx.SearchSymbols(context.Background(), "", 100, false, false, nil).Items
 	for _, r := range results {
 		if r.Icon == "" {
 			t.Errorf("expected icon for %s", r.Name)
@@ -436,14 +436,14 @@ func TestSearchSymbols_SkipsHidden(t *testing.T) {
 	idx.RebuildFrom(context.Background(), dir, rules, WalkOptions{IncludeHidden: true})
 	idx.ExtractSymbols()
 
-	results := idx.SearchSymbols("", 100, false).Items
+	results := idx.SearchSymbols(context.Background(), "", 100, false, false, nil).Items
 	for _, r := range results {
 		if contains(r.Name, "Hidden") {
 			t.Error("should skip hidden files when includeHidden=false")
 		}
 	}
 
-	resultsAll := idx.SearchSymbols("", 100, true).Items
+	resultsAll := idx.SearchSymbols(context.Background(), "", 100, true, false, nil).Items
 	foundHidden := false
 	for _, r := range resultsAll {
 		if contains(r.Name, "Hidden") {
@@ -478,7 +478,7 @@ var globalVar = "test"
 	})
 
 	// SearchClasses should only return type-level symbols
-	results := idx.SearchClasses("", 100, false).Items
+	results := idx.SearchClasses(context.Background(), "", 100, false, false, nil).Items
 	
 	// Should find User (struct) and Error (interface), but not functions, consts, or vars
 	if len(results) != 2 {
@@ -526,7 +526,7 @@ type SearchProvider interface {
 `,
 	})
 
-	results := idx.SearchSymbols("SR", 100, false).Items
+	results := idx.SearchSymbols(context.Background(), "SR", 100, false, false, nil).Items
 	if len(results) != 1 || !contains(results[0].Name, "SearchResult") {
 		t.Errorf("expected to find SearchResult with query 'SR', got %v", results)
 	}
@@ -542,7 +542,7 @@ type C struct {}
 `,
 	})
 
-	results := idx.SearchClasses("", 100, false).Items
+	results := idx.SearchClasses(context.Background(), "", 100, false, false, nil).Items
 	if len(results) != 3 {
 		t.Errorf("expected 3 type symbols for empty query, got %d", len(results))
 	}

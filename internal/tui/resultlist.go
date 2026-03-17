@@ -60,6 +60,16 @@ func (r *ResultList) SetItems(items []model.SearchResult, resetCursor bool) {
 	}
 }
 
+// AppendItems adds items to the existing result list.
+func (r *ResultList) AppendItems(items []model.SearchResult) {
+	if len(items) == 0 {
+		return
+	}
+	r.items = append(r.items, items...)
+	r.loading = false
+	r.ensureVisible()
+}
+
 // SetTotalMatched stores the total match count (before truncation).
 func (r *ResultList) SetTotalMatched(n int) {
 	r.totalMatched = n

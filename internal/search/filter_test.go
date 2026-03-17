@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"testing"
 
 	"github.com/bob/boomerang/internal/model"
@@ -86,7 +87,7 @@ func TestIndex_SearchWithInlineExtFilter(t *testing.T) {
 	idx := buildTestIndex(entries)
 
 	// Query "main ext:go" should only return .go file.
-	results := idx.Search(SearchOptions{Query: "main ext:go", Tab: model.TabAll}).Items
+	results := idx.Search(context.Background(), SearchOptions{Query: "main ext:go", Tab: model.TabAll}).Items
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -104,7 +105,7 @@ func TestIndex_SearchWithMultiExtFilter(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "ext:go,rs", Tab: model.TabAll}).Items
+	results := idx.Search(context.Background(), SearchOptions{Query: "ext:go,rs", Tab: model.TabAll}).Items
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
@@ -117,7 +118,7 @@ func TestIndex_SearchWithDotSuffixFilter(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "main .go", Tab: model.TabAll}).Items
+	results := idx.Search(context.Background(), SearchOptions{Query: "main .go", Tab: model.TabAll}).Items
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -133,7 +134,7 @@ func TestIndex_SearchNoFilterShowsAll(t *testing.T) {
 	}
 	idx := buildTestIndex(entries)
 
-	results := idx.Search(SearchOptions{Query: "", Tab: model.TabAll}).Items
+	results := idx.Search(context.Background(), SearchOptions{Query: "", Tab: model.TabAll}).Items
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
@@ -148,7 +149,7 @@ func TestIndex_SearchWithExplicitExtFilters(t *testing.T) {
 	idx := buildTestIndex(entries)
 
 	// Using ExtFilters field directly (from filter menu).
-	results := idx.Search(SearchOptions{
+	results := idx.Search(context.Background(), SearchOptions{
 		Query:      "",
 		Tab:        model.TabAll,
 		ExtFilters: []string{".go", ".py"},

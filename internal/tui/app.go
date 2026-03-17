@@ -20,10 +20,17 @@ import (
 	"github.com/bob/boomerang/internal/search"
 )
 
+// SearchID tracks search sessions to avoid stale results.
+type SearchID uint64
+
 // ResultsMsg delivers search results to the TUI.
 type ResultsMsg struct {
+	ID           SearchID
 	Items        []model.SearchResult
 	TotalMatched int
+	Append       bool
+	Done         bool
+	Ch           chan ResultsMsg
 }
 
 // OpenResultMsg is emitted when the user presses Enter on a selected result.
@@ -31,11 +38,12 @@ type OpenResultMsg struct {
 	Result model.SearchResult
 }
 
-// searchCanceler provides safe cancellation of in-flight searches.
+// searchCanceler provides safe cancellation of in-flight searches and tracks search IDs.
 // It is a pointer-based shared state that survives Bubble Tea's value copies.
 type searchCanceler struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
+	id     SearchID
 }
 
 func (sc *searchCanceler) Cancel() {
@@ -47,12 +55,26 @@ func (sc *searchCanceler) Cancel() {
 	}
 }
 
-func (sc *searchCanceler) Set(cancel context.CancelFunc) {
+func (sc *searchCanceler) NextID() SearchID {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.id++
+	return sc.id
+}
+
+func (sc *searchCanceler) CurrentID() SearchID {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	return sc.id
+}
+
+func (sc *searchCanceler) Set(id SearchID, cancel context.CancelFunc) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	if sc.cancel != nil {
 		sc.cancel()
 	}
+	sc.id = id
 	sc.cancel = cancel
 }
 
@@ -294,9 +316,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.layout(msg.Width, msg.Height)
 	case ResultsMsg:
-		// Persist cursor if results are just being updated during typing.
-		a.resultList.SetItems(msg.Items, false)
+		if msg.ID != a.searchCancel.CurrentID() {
+			return a, nil
+		}
+		if msg.Append {
+			a.resultList.AppendItems(msg.Items)
+		} else {
+			a.resultList.SetItems(msg.Items, false)
+		}
 		a.resultList.SetTotalMatched(msg.TotalMatched)
+		if !msg.Done && msg.Ch != nil {
+			cmds = append(cmds, a.waitForResults(msg.ID, msg.Ch))
+		}
 	case TabChangedMsg:
 		a.tabBar.SetActive(msg.Tab)
 		a.queryCursor = -1
@@ -394,6 +425,17 @@ func isPrintable(msg tea.Msg) bool {
 // IndexUpdatedMsg is emitted when the index has been rebuilt.
 type IndexUpdatedMsg struct{}
 
+// waitForResults waits for the next message on the results channel.
+func (a App) waitForResults(id SearchID, ch chan ResultsMsg) tea.Cmd {
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return msg
+	}
+}
+
 func (a *App) layout(w, h int) {
 	a.width = w
 	a.height = h
@@ -441,30 +483,30 @@ func revealInFileManager(path string) error {
 
 // triggerSearch returns a cmd that queries the index and produces a ResultsMsg.
 func (a App) triggerSearch() tea.Cmd {
-	a.searchCancel.Cancel()
+	id := a.searchCancel.NextID()
 
 	if a.index == nil {
-		return func() tea.Msg { return ResultsMsg{} }
+		return func() tea.Msg { return ResultsMsg{ID: id, Done: true} }
 	}
 
 	tab := a.tabBar.Active()
 	switch tab {
 	case model.TabAll:
-		return a.triggerAllSearch()
+		return a.triggerAllSearch(id)
 	case model.TabText:
-		return a.triggerGrepSearch()
+		return a.triggerGrepSearch(id)
 	case model.TabSymbols:
-		return a.triggerSymbolSearch()
+		return a.triggerSymbolSearch(id)
 	case model.TabClasses:
-		return a.triggerClassSearch()
+		return a.triggerClassSearch(id)
 	case model.TabActions:
-		return a.triggerActionSearch()
+		return a.triggerActionSearch(id)
 	default:
-		return a.triggerFileSearch()
+		return a.triggerFileSearch(id)
 	}
 }
 
-func (a App) triggerAllSearch() tea.Cmd {
+func (a App) triggerAllSearch(id SearchID) tea.Cmd {
 	query := a.input.Value()
 	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
 	projectOnly := a.statusBar.ProjectOnly()
@@ -474,12 +516,22 @@ func (a App) triggerAllSearch() tea.Cmd {
 	if limit < 5 {
 		limit = 5
 	}
+	sc := a.searchCancel
 
-	return func() tea.Msg {
-		var allItems []model.SearchResult
+	ctx, cancel := context.WithCancel(context.Background())
+	sc.Set(id, cancel)
+
+	ch := make(chan ResultsMsg, 100)
+
+	go func() {
+		defer cancel()
+		defer close(ch)
+
+		first := true
+		totalMatched := 0
 
 		// Files
-		filesRs := idx.Search(search.SearchOptions{
+		filesRs := idx.Search(ctx, search.SearchOptions{
 			Query:         query,
 			Tab:           model.TabFiles,
 			ExtFilters:    extFilters,
@@ -488,91 +540,133 @@ func (a App) triggerAllSearch() tea.Cmd {
 			ProjectOnly:   projectOnly,
 			History:       a.history,
 		})
+		if ctx.Err() != nil {
+			return
+		}
+
+		var filesItems []model.SearchResult
 		if len(filesRs.Items) > 0 {
-			allItems = append(allItems, model.SearchResult{
+			filesItems = append(filesItems, model.SearchResult{
 				Name:       "Files",
 				IsHeader:   true,
 				SectionTab: model.TabFiles,
 			})
-			allItems = append(allItems, filesRs.Items...)
+			filesItems = append(filesItems, filesRs.Items...)
 			if filesRs.TotalMatched > limit {
-				allItems = append(allItems, model.SearchResult{
+				filesItems = append(filesItems, model.SearchResult{
 					Name:       fmt.Sprintf("  … more Files (%d total)", filesRs.TotalMatched),
 					SectionTab: model.TabFiles,
 				})
 			}
+			totalMatched += len(filesItems)
+			ch <- ResultsMsg{ID: id, Items: filesItems, TotalMatched: totalMatched, Append: !first, Done: false, Ch: ch}
+			first = false
 		}
 
 		// Classes
-		classesRs := idx.SearchClasses(query, limit, includeHidden, projectOnly, a.history)
+		classesRs := idx.SearchClasses(ctx, query, limit, includeHidden, projectOnly, a.history)
+		if ctx.Err() != nil {
+			return
+		}
+		var classesItems []model.SearchResult
 		if len(classesRs.Items) > 0 {
-			allItems = append(allItems, model.SearchResult{
+			classesItems = append(classesItems, model.SearchResult{
 				Name:       "Classes",
 				IsHeader:   true,
 				SectionTab: model.TabClasses,
 			})
-			allItems = append(allItems, classesRs.Items...)
+			classesItems = append(classesItems, classesRs.Items...)
 			if classesRs.TotalMatched > limit {
-				allItems = append(allItems, model.SearchResult{
+				classesItems = append(classesItems, model.SearchResult{
 					Name:       fmt.Sprintf("  … more Classes (%d total)", classesRs.TotalMatched),
 					SectionTab: model.TabClasses,
 				})
 			}
+			totalMatched += len(classesItems)
+			ch <- ResultsMsg{ID: id, Items: classesItems, TotalMatched: totalMatched, Append: !first, Done: false, Ch: ch}
+			first = false
 		}
 
 		// Symbols
-		symbolsRs := idx.SearchSymbols(query, limit, includeHidden, projectOnly, a.history)
+		symbolsRs := idx.SearchSymbols(ctx, query, limit, includeHidden, projectOnly, a.history)
+		if ctx.Err() != nil {
+			return
+		}
+		var symbolsItems []model.SearchResult
 		if len(symbolsRs.Items) > 0 {
-			allItems = append(allItems, model.SearchResult{
+			symbolsItems = append(symbolsItems, model.SearchResult{
 				Name:       "Symbols",
 				IsHeader:   true,
 				SectionTab: model.TabSymbols,
 			})
-			allItems = append(allItems, symbolsRs.Items...)
+			symbolsItems = append(symbolsItems, symbolsRs.Items...)
 			if symbolsRs.TotalMatched > limit {
-				allItems = append(allItems, model.SearchResult{
+				symbolsItems = append(symbolsItems, model.SearchResult{
 					Name:       fmt.Sprintf("  … more Symbols (%d total)", symbolsRs.TotalMatched),
 					SectionTab: model.TabSymbols,
 				})
 			}
+			totalMatched += len(symbolsItems)
+			ch <- ResultsMsg{ID: id, Items: symbolsItems, TotalMatched: totalMatched, Append: !first, Done: false, Ch: ch}
+			first = false
 		}
 
 		// Actions
 		actions := a.searchActions(query)
 		if len(actions) > 0 {
+			var actionsItems []model.SearchResult
 			totalActions := len(actions)
 			aLimit := limit
 			if aLimit > totalActions {
 				aLimit = totalActions
 			}
-			allItems = append(allItems, model.SearchResult{
+			actionsItems = append(actionsItems, model.SearchResult{
 				Name:       "Actions",
 				IsHeader:   true,
 				SectionTab: model.TabActions,
 			})
-			allItems = append(allItems, actions[:aLimit]...)
+			actionsItems = append(actionsItems, actions[:aLimit]...)
 			if totalActions > limit {
-				allItems = append(allItems, model.SearchResult{
+				actionsItems = append(actionsItems, model.SearchResult{
 					Name:       fmt.Sprintf("  … more Actions (%d total)", totalActions),
 					SectionTab: model.TabActions,
 				})
 			}
+			totalMatched += len(actionsItems)
+			ch <- ResultsMsg{ID: id, Items: actionsItems, TotalMatched: totalMatched, Append: !first, Done: false, Ch: ch}
+			first = false
 		}
 
-		return ResultsMsg{Items: allItems, TotalMatched: len(allItems)}
-	}
+		if first {
+			// No results at all.
+			ch <- ResultsMsg{ID: id, Items: nil, TotalMatched: 0, Append: false, Done: true}
+		} else {
+			ch <- ResultsMsg{ID: id, Done: true}
+		}
+	}()
+
+	return a.waitForResults(id, ch)
 }
 
-func (a App) triggerFileSearch() tea.Cmd {
+func (a App) triggerFileSearch(id SearchID) tea.Cmd {
 	idx := a.index
 	query := a.input.Value()
 	tab := a.tabBar.Active()
 	extFilters := a.filterMenu.SelectedExtensions()
 	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
 	projectOnly := a.statusBar.ProjectOnly()
+	sc := a.searchCancel
 
-	return func() tea.Msg {
-		rs := idx.Search(search.SearchOptions{
+	ctx, cancel := context.WithCancel(context.Background())
+	sc.Set(id, cancel)
+
+	ch := make(chan ResultsMsg, 100)
+
+	go func() {
+		defer cancel()
+		defer close(ch)
+
+		rs := idx.Search(ctx, search.SearchOptions{
 			Query:         query,
 			Tab:           tab,
 			ExtFilters:    extFilters,
@@ -581,41 +675,206 @@ func (a App) triggerFileSearch() tea.Cmd {
 			ProjectOnly:   projectOnly,
 			History:       a.history,
 		})
-		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
-	}
+		if ctx.Err() != nil {
+			return
+		}
+
+		if len(rs.Items) == 0 {
+			ch <- ResultsMsg{ID: id, Items: nil, TotalMatched: 0, Append: false, Done: true}
+			return
+		}
+
+		// Batch results (50 at a time)
+		batchSize := 50
+		for i := 0; i < len(rs.Items); i += batchSize {
+			end := i + batchSize
+			if end > len(rs.Items) {
+				end = len(rs.Items)
+			}
+
+			ch <- ResultsMsg{
+				ID:           id,
+				Items:        rs.Items[i:end],
+				TotalMatched: rs.TotalMatched,
+				Append:       i > 0,
+				Done:         end == len(rs.Items),
+				Ch:           ch,
+			}
+
+			if end == len(rs.Items) {
+				return
+			}
+
+			// Check for cancellation between batches.
+			if ctx.Err() != nil {
+				return
+			}
+		}
+	}()
+
+	return a.waitForResults(id, ch)
 }
 
-func (a App) triggerSymbolSearch() tea.Cmd {
+func (a App) triggerSymbolSearch(id SearchID) tea.Cmd {
 	idx := a.index
 	query := a.input.Value()
 	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
 	projectOnly := a.statusBar.ProjectOnly()
+	sc := a.searchCancel
 
-	return func() tea.Msg {
-		rs := idx.SearchSymbols(query, a.cfg.MaxResults, includeHidden, projectOnly, a.history)
-		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
-	}
+	ctx, cancel := context.WithCancel(context.Background())
+	sc.Set(id, cancel)
+
+	ch := make(chan ResultsMsg, 100)
+
+	go func() {
+		defer cancel()
+		defer close(ch)
+
+		rs := idx.SearchSymbols(ctx, query, a.cfg.MaxResults, includeHidden, projectOnly, a.history)
+		if ctx.Err() != nil {
+			return
+		}
+
+		if len(rs.Items) == 0 {
+			ch <- ResultsMsg{ID: id, Items: nil, TotalMatched: 0, Append: false, Done: true}
+			return
+		}
+
+		// Batch results
+		batchSize := 50
+		for i := 0; i < len(rs.Items); i += batchSize {
+			end := i + batchSize
+			if end > len(rs.Items) {
+				end = len(rs.Items)
+			}
+
+			ch <- ResultsMsg{
+				ID:           id,
+				Items:        rs.Items[i:end],
+				TotalMatched: rs.TotalMatched,
+				Append:       i > 0,
+				Done:         end == len(rs.Items),
+				Ch:           ch,
+			}
+
+			if end == len(rs.Items) {
+				return
+			}
+			if ctx.Err() != nil {
+				return
+			}
+		}
+	}()
+
+	return a.waitForResults(id, ch)
 }
 
-func (a App) triggerClassSearch() tea.Cmd {
+func (a App) triggerClassSearch(id SearchID) tea.Cmd {
 	idx := a.index
 	query := a.input.Value()
 	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
 	projectOnly := a.statusBar.ProjectOnly()
+	sc := a.searchCancel
 
-	return func() tea.Msg {
-		rs := idx.SearchClasses(query, a.cfg.MaxResults, includeHidden, projectOnly, a.history)
-		return ResultsMsg{Items: rs.Items, TotalMatched: rs.TotalMatched}
-	}
+	ctx, cancel := context.WithCancel(context.Background())
+	sc.Set(id, cancel)
+
+	ch := make(chan ResultsMsg, 100)
+
+	go func() {
+		defer cancel()
+		defer close(ch)
+
+		rs := idx.SearchClasses(ctx, query, a.cfg.MaxResults, includeHidden, projectOnly, a.history)
+		if ctx.Err() != nil {
+			return
+		}
+
+		if len(rs.Items) == 0 {
+			ch <- ResultsMsg{ID: id, Items: nil, TotalMatched: 0, Append: false, Done: true}
+			return
+		}
+
+		// Batch results
+		batchSize := 50
+		for i := 0; i < len(rs.Items); i += batchSize {
+			end := i + batchSize
+			if end > len(rs.Items) {
+				end = len(rs.Items)
+			}
+
+			ch <- ResultsMsg{
+				ID:           id,
+				Items:        rs.Items[i:end],
+				TotalMatched: rs.TotalMatched,
+				Append:       i > 0,
+				Done:         end == len(rs.Items),
+				Ch:           ch,
+			}
+
+			if end == len(rs.Items) {
+				return
+			}
+			if ctx.Err() != nil {
+				return
+			}
+		}
+	}()
+
+	return a.waitForResults(id, ch)
 }
 
-func (a App) triggerActionSearch() tea.Cmd {
+func (a App) triggerActionSearch(id SearchID) tea.Cmd {
 	query := a.input.Value()
+	sc := a.searchCancel
 
-	return func() tea.Msg {
+	ctx, cancel := context.WithCancel(context.Background())
+	sc.Set(id, cancel)
+
+	ch := make(chan ResultsMsg, 100)
+
+	go func() {
+		defer cancel()
+		defer close(ch)
+
 		results := a.searchActions(query)
-		return ResultsMsg{Items: results, TotalMatched: len(results)}
-	}
+		if ctx.Err() != nil {
+			return
+		}
+
+		if len(results) == 0 {
+			ch <- ResultsMsg{ID: id, Items: nil, TotalMatched: 0, Append: false, Done: true}
+			return
+		}
+
+		// Batch results
+		batchSize := 50
+		for i := 0; i < len(results); i += batchSize {
+			end := i + batchSize
+			if end > len(results) {
+				end = len(results)
+			}
+
+			ch <- ResultsMsg{
+				ID:           id,
+				Items:        results[i:end],
+				TotalMatched: len(results),
+				Append:       i > 0,
+				Done:         end == len(results),
+				Ch:           ch,
+			}
+
+			if end == len(results) {
+				return
+			}
+			if ctx.Err() != nil {
+				return
+			}
+		}
+	}()
+
+	return a.waitForResults(id, ch)
 }
 
 func (a App) searchActions(query string) []model.SearchResult {
@@ -661,30 +920,57 @@ func (a App) searchActions(query string) []model.SearchResult {
 	return results
 }
 
-func (a App) triggerGrepSearch() tea.Cmd {
+func (a App) triggerGrepSearch(id SearchID) tea.Cmd {
 	idx := a.index
 	query := a.input.Value()
 	includeHidden := a.showHidden || !a.statusBar.ProjectOnly()
 	projectOnly := a.statusBar.ProjectOnly()
 	sc := a.searchCancel
 
-	return func() tea.Msg {
-		ctx, cancel := context.WithCancel(context.Background())
-		sc.Set(cancel)
+	ctx, cancel := context.WithCancel(context.Background())
+	sc.Set(id, cancel)
 
-		ch := search.Grep(ctx, idx, query, search.GrepOptions{
+	ch := make(chan ResultsMsg, 100)
+
+	go func() {
+		defer cancel()
+		defer close(ch)
+
+		grepCh := search.Grep(ctx, idx, query, search.GrepOptions{
 			IncludeHidden: includeHidden,
 			ProjectOnly:   projectOnly,
 			MaxResults:    a.cfg.MaxResults,
 		})
 
 		var results []model.SearchResult
-		for m := range ch {
-			results = append(results, search.GrepMatchToResult(m))
+		count := 0
+		first := true
+		for {
+			select {
+			case m, ok := <-grepCh:
+				if !ok {
+					// Final message.
+					if first && count == 0 {
+						ch <- ResultsMsg{ID: id, Items: nil, TotalMatched: 0, Append: false, Done: true}
+					} else {
+						ch <- ResultsMsg{ID: id, Items: results, TotalMatched: count, Append: !first, Done: true}
+					}
+					return
+				}
+				count++
+				results = append(results, search.GrepMatchToResult(m))
+				if len(results) >= 50 {
+					ch <- ResultsMsg{ID: id, Items: results, TotalMatched: count, Append: !first, Done: false, Ch: ch}
+					results = nil
+					first = false
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
+	}()
 
-		return ResultsMsg{Items: results, TotalMatched: len(results)}
-	}
+	return a.waitForResults(id, ch)
 }
 
 func (a App) View() string {
