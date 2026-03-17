@@ -20,12 +20,6 @@ import (
 	"github.com/bob/boomerang/internal/search"
 )
 
-// Adaptive colors that work in both dark and light terminal themes.
-var (
-	borderColor = lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}
-	dividerFg   = lipgloss.AdaptiveColor{Light: "#CCCCCC", Dark: "#444444"}
-)
-
 // ResultsMsg delivers search results to the TUI.
 type ResultsMsg struct {
 	Items        []model.SearchResult
@@ -77,6 +71,7 @@ type App struct {
 	actionRegistry *ActionRegistry
 	showHidden     bool
 	cfg            *config.Config
+	theme          Theme
 }
 
 // NewApp returns an initialized App with the given file index and config.
@@ -85,20 +80,30 @@ func NewApp(idx *search.Index, cfg *config.Config) App {
 		cfg = config.NewDefaultConfig()
 	}
 
-	fm := NewFilterMenu()
+	themeName := cfg.Theme
+	if themeName == "auto" {
+		if lipgloss.HasDarkBackground() {
+			themeName = "dark"
+		} else {
+			themeName = "light"
+		}
+	}
+	theme := GetTheme(themeName)
+
+	fm := NewFilterMenu(theme)
 	if idx != nil {
 		fm.SetExtensions(idx.Extensions())
 	}
 
-	sb := NewStatusBar()
+	sb := NewStatusBar(theme)
 	if cfg.DefaultScope == "all" {
 		sb.SetProjectOnly(false)
 	}
 
 	return App{
-		tabBar:         NewTabBar(),
-		input:          NewSearchInput(),
-		resultList:     NewResultList(),
+		tabBar:         NewTabBar(theme),
+		input:          NewSearchInput(theme),
+		resultList:     NewResultList(theme),
 		statusBar:      sb,
 		filterMenu:     fm,
 		index:          idx,
@@ -106,6 +111,7 @@ func NewApp(idx *search.Index, cfg *config.Config) App {
 		actionRegistry: NewActionRegistry(),
 		showHidden:     cfg.ShowHidden,
 		cfg:            cfg,
+		theme:          theme,
 	}
 }
 
@@ -623,12 +629,14 @@ func (a App) View() string {
 	}
 
 	divider := lipgloss.NewStyle().
-		Foreground(dividerFg).
+		Foreground(a.theme.Divider).
 		Render(repeatChar("─", a.width-4))
 
 	container := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
+		BorderForeground(a.theme.Border).
+		Foreground(a.theme.Foreground).
+		Background(a.theme.Background).
 		Width(a.width - 2).
 		Height(a.height - 2)
 

@@ -11,13 +11,6 @@ import (
 	"github.com/bob/boomerang/internal/model"
 )
 
-var (
-	accentColor = lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}
-	dimColor    = lipgloss.AdaptiveColor{Light: "#999999", Dark: "#666666"}
-	selectBg    = lipgloss.AdaptiveColor{Light: "#E8DFFB", Dark: "#2D2150"}
-	normalFg    = lipgloss.AdaptiveColor{Light: "#333333", Dark: "#DDDDDD"}
-)
-
 // ResultList is a scrollable, selectable list of search results.
 type ResultList struct {
 	items        []model.SearchResult
@@ -28,14 +21,18 @@ type ResultList struct {
 	loading      bool
 	spinner      spinner.Model
 	totalMatched int // total before MaxResults truncation
+	theme        Theme
 }
 
 // NewResultList returns an initialized ResultList.
-func NewResultList() ResultList {
+func NewResultList(theme Theme) ResultList {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(accentColor)
-	return ResultList{spinner: sp}
+	sp.Style = lipgloss.NewStyle().Foreground(theme.MatchHighlight)
+	return ResultList{
+		spinner: sp,
+		theme:   theme,
+	}
 }
 
 // SetSize sets the viewport dimensions.
@@ -163,10 +160,9 @@ func (r *ResultList) moveUp(n int) {
 			}
 		}
 
-		// If we're still on a header (e.g. two headers in a row, which shouldn't happen),
-		// or if we wrapped back to where we started and it's a header.
+		// Fallback
 		if r.items[r.cursor].IsHeader {
-			r.cursor = prev // Fallback
+			r.cursor = prev
 		}
 	}
 	r.ensureVisible()
@@ -194,7 +190,7 @@ func (r *ResultList) moveDown(n int) {
 			}
 		}
 
-		// Fallback for edge cases.
+		// Fallback
 		if r.items[r.cursor].IsHeader {
 			r.cursor = prev
 		}
@@ -266,7 +262,7 @@ func (r ResultList) View() string {
 
 	if len(r.items) == 0 {
 		return r.centeredMessage(
-			lipgloss.NewStyle().Foreground(dimColor).Render("No results found"),
+			lipgloss.NewStyle().Foreground(r.theme.DimForeground).Render("No results found"),
 		)
 	}
 
@@ -312,12 +308,8 @@ func (r ResultList) renderRow(item model.SearchResult, selected bool) string {
 	}
 
 	// Icon.
-	iconStyle := lipgloss.NewStyle()
-	if item.IconColor != "" {
-		iconStyle = iconStyle.Foreground(lipgloss.Color(item.IconColor))
-	} else {
-		iconStyle = iconStyle.Foreground(accentColor)
-	}
+	iconColor := r.getIconColor(item)
+	iconStyle := lipgloss.NewStyle().Foreground(iconColor)
 	icon := item.Icon
 	if icon == "" {
 		icon = "·"
@@ -328,7 +320,7 @@ func (r ResultList) renderRow(item model.SearchResult, selected bool) string {
 	name := r.highlightName(item.Name, item.MatchRanges, selected)
 
 	// Detail (right-aligned, dimmed).
-	detail := lipgloss.NewStyle().Foreground(dimColor).Render(item.Detail)
+	detail := lipgloss.NewStyle().Foreground(r.theme.ResultDetail).Render(item.Detail)
 
 	nameWidth := contentWidth - lipgloss.Width(detail)
 	if nameWidth < 4 {
@@ -340,7 +332,7 @@ func (r ResultList) renderRow(item model.SearchResult, selected bool) string {
 
 	if selected {
 		row = lipgloss.NewStyle().
-			Background(selectBg).
+			Background(r.theme.ResultSelected).
 			Bold(true).
 			Width(r.width - 1). // minus scroll indicator
 			Render(row)
@@ -349,13 +341,30 @@ func (r ResultList) renderRow(item model.SearchResult, selected bool) string {
 	return row
 }
 
+func (r ResultList) getIconColor(item model.SearchResult) lipgloss.Color {
+	switch item.ResultType {
+	case model.ResultFile:
+		return r.theme.IconFile
+	case model.ResultSymbol:
+		return r.theme.IconSymbol
+	case model.ResultClass:
+		return r.theme.IconClass
+	case model.ResultAction:
+		return r.theme.IconAction
+	case model.ResultText:
+		return r.theme.IconText
+	default:
+		return r.theme.MatchHighlight
+	}
+}
+
 func (r ResultList) renderHeader(item model.SearchResult) string {
 	headerStyle := lipgloss.NewStyle().
-		Foreground(accentColor).
+		Foreground(r.theme.SectionHeader).
 		Bold(true)
 
 	ruleStyle := lipgloss.NewStyle().
-		Foreground(dimColor)
+		Foreground(r.theme.SectionRule)
 
 	text := " ── " + item.Name + " "
 	ruleLen := r.width - lipgloss.Width(text) - 1
@@ -369,7 +378,7 @@ func (r ResultList) renderHeader(item model.SearchResult) string {
 
 func (r ResultList) highlightName(name string, ranges []model.MatchRange, selected bool) string {
 	if len(ranges) == 0 {
-		style := lipgloss.NewStyle().Foreground(normalFg)
+		style := lipgloss.NewStyle().Foreground(r.theme.ResultName)
 		if selected {
 			style = style.Bold(true)
 		}
@@ -377,9 +386,9 @@ func (r ResultList) highlightName(name string, ranges []model.MatchRange, select
 	}
 
 	matchStyle := lipgloss.NewStyle().
-		Foreground(accentColor).
+		Foreground(r.theme.MatchHighlight).
 		Bold(true)
-	plainStyle := lipgloss.NewStyle().Foreground(normalFg)
+	plainStyle := lipgloss.NewStyle().Foreground(r.theme.ResultName)
 	if selected {
 		plainStyle = plainStyle.Bold(true)
 	}
@@ -425,7 +434,7 @@ func (r ResultList) scrollIndicators(visibleRows int) []string {
 	}
 
 	out := make([]string, visibleRows)
-	style := lipgloss.NewStyle().Foreground(dimColor)
+	style := lipgloss.NewStyle().Foreground(r.theme.DimForeground)
 
 	// Compute thumb position and size.
 	thumbSize := r.height * r.height / total

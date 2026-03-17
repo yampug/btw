@@ -33,19 +33,25 @@ type SearchInput struct {
 	width     int
 	debounce  time.Duration
 	lastValue string // value when debounce timer started
+	theme     Theme
 }
 
 // NewSearchInput returns an initialized, focused SearchInput.
-func NewSearchInput() SearchInput {
+func NewSearchInput(theme Theme) SearchInput {
 	ti := textinput.New()
 	ti.Placeholder = "Search everywhere..."
 	ti.Focus()
 	ti.CharLimit = 256
 	ti.Prompt = ""
 
+	ti.TextStyle = lipgloss.NewStyle().Foreground(theme.InputText)
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(theme.InputPlaceholder)
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(theme.InputIcon)
+
 	return SearchInput{
 		input:    ti,
 		debounce: 150 * time.Millisecond,
+		theme:    theme,
 	}
 }
 
@@ -152,7 +158,7 @@ func (s *SearchInput) startDebounce() tea.Cmd {
 // View renders the search input row.
 func (s SearchInput) View() string {
 	iconStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}).
+		Foreground(s.theme.InputIcon).
 		Bold(true)
 
 	icon := iconStyle.Render(" 🔍 ")
@@ -162,8 +168,8 @@ func (s SearchInput) View() string {
 	var badge string
 	if s.filter != "" {
 		badgeStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#FFFFFF"}).
-			Background(lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}).
+			Foreground(s.theme.InputBadgeText).
+			Background(s.theme.InputBadge).
 			Padding(0, 1)
 		badge = " " + badgeStyle.Render(s.filter)
 	}

@@ -26,11 +26,15 @@ type StatusBar struct {
 	width       int
 	message     string
 	messageID   int // to avoid clearing a newer message
+	theme       Theme
 }
 
-// NewStatusBar returns an initialized StatusBar defaulting to project-only scope.
-func NewStatusBar() StatusBar {
-	return StatusBar{projectOnly: true}
+// NewStatusBar returns an initialized StatusBar with the given theme.
+func NewStatusBar(theme Theme) StatusBar {
+	return StatusBar{
+		projectOnly: true,
+		theme:       theme,
+	}
 }
 
 // SetWidth sets the available rendering width.
@@ -83,6 +87,11 @@ func (s StatusBar) Update(msg tea.Msg) (StatusBar, tea.Cmd) {
 
 // View renders the status bar.
 func (s StatusBar) View() string {
+	baseStyle := lipgloss.NewStyle().
+		Background(s.theme.StatusBg).
+		Foreground(s.theme.StatusFg).
+		Width(s.width)
+
 	// Left side: Scope toggle.
 	check := "  "
 	label := "All Places"
@@ -92,7 +101,7 @@ func (s StatusBar) View() string {
 	}
 
 	toggleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}).
+		Foreground(s.theme.InputIcon). // use accent/icon color
 		Bold(s.projectOnly)
 
 	left := toggleStyle.Render(fmt.Sprintf(" [%s %s]", check, label))
@@ -101,8 +110,8 @@ func (s StatusBar) View() string {
 	message := ""
 	if s.message != "" {
 		messageStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#FFFFFF"}).
-			Background(lipgloss.AdaptiveColor{Light: "#28A745", Dark: "#218838"}).
+			Foreground(s.theme.TabActive).
+			Background(s.theme.StatusMessage).
 			Padding(0, 1)
 		message = " " + messageStyle.Render(s.message)
 	}
@@ -110,7 +119,7 @@ func (s StatusBar) View() string {
 	// Right side: Result count.
 	countText := fmt.Sprintf("%d/%d results", s.selected, s.total)
 	countStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#666666", Dark: "#888888"})
+		Foreground(s.theme.DimForeground)
 	right := countStyle.Render(countText)
 
 	// Fill gap between parts.
@@ -120,5 +129,5 @@ func (s StatusBar) View() string {
 	}
 	filler := repeatChar(" ", gap)
 
-	return left + message + filler + right
+	return baseStyle.Render(left + message + filler + right)
 }

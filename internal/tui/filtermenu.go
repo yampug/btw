@@ -24,12 +24,14 @@ type FilterMenu struct {
 	width      int
 	height     int
 	filterText string // for search-within-filter
+	theme      Theme
 }
 
-// NewFilterMenu returns an initialized FilterMenu.
-func NewFilterMenu() FilterMenu {
+// NewFilterMenu returns an initialized FilterMenu with the given theme.
+func NewFilterMenu(theme Theme) FilterMenu {
 	return FilterMenu{
 		selected: make(map[string]bool),
+		theme:    theme,
 	}
 }
 
@@ -165,19 +167,19 @@ func (f FilterMenu) View() string {
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"})
+		Foreground(f.theme.SectionHeader)
 
 	selStyle := lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#E8DFFB", Dark: "#2D2150"}).
+		Background(f.theme.ResultSelected).
 		Bold(true)
 
 	dimStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#999999", Dark: "#666666"})
+		Foreground(f.theme.DimForeground)
 
 	var lines []string
 	header := titleStyle.Render(" Filter by extension")
 	if f.filterText != "" {
-		header += dimStyle.Render(" searching: ") + lipgloss.NewStyle().Foreground(accentColor).Render(f.filterText)
+		header += dimStyle.Render(" searching: ") + lipgloss.NewStyle().Foreground(f.theme.MatchHighlight).Render(f.filterText)
 	}
 	lines = append(lines, header)
 	lines = append(lines, dimStyle.Render(" (a: all, n: none, space: toggle, esc: close)"))
@@ -227,7 +229,9 @@ func (f FilterMenu) View() string {
 
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}).
+		BorderForeground(f.theme.Border).
+		Background(f.theme.Background).
+		Foreground(f.theme.Foreground).
 		Padding(0, 1).
 		Width(45)
 
