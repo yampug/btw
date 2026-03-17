@@ -127,6 +127,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case IndexUpdatedMsg:
+		if a.index != nil {
+			a.filterMenu.SetExtensions(a.index.Extensions())
+		}
 		a.resultList.SetLoading(true)
 		cmds = append(cmds, a.resultList.SpinnerTick(), a.triggerSearch())
 		cmds = append(cmds, a.statusBar.SetMessage("Index refreshed", 2*time.Second))

@@ -23,6 +23,7 @@ type FilterMenu struct {
 	cursor     int
 	width      int
 	height     int
+	filterText string // for search-within-filter
 }
 
 // NewFilterMenu returns an initialized FilterMenu.
@@ -53,6 +54,7 @@ func (f *FilterMenu) Toggle() {
 	f.visible = !f.visible
 	if f.visible {
 		f.cursor = 0
+		f.filterText = ""
 	}
 }
 
@@ -86,10 +88,8 @@ func (f FilterMenu) Update(msg tea.Msg) (FilterMenu, tea.Cmd) {
 		return f, nil
 	}
 
-	maxIdx := len(f.extensions) - 1
-	if maxIdx < 0 {
-		return f, nil
-	}
+	filtered := f.filteredExtensions()
+	maxIdx := len(filtered) - 1
 
 	switch km.String() {
 	case "up", "k":
@@ -103,24 +103,63 @@ func (f FilterMenu) Update(msg tea.Msg) (FilterMenu, tea.Cmd) {
 			f.cursor = maxIdx
 		}
 	case " ", "enter":
-		ext := f.extensions[f.cursor].Ext
-		f.selected[ext] = !f.selected[ext]
-		if !f.selected[ext] {
-			delete(f.selected, ext)
+		if maxIdx >= 0 {
+			ext := filtered[f.cursor].Ext
+			f.selected[ext] = !f.selected[ext]
+			if !f.selected[ext] {
+				delete(f.selected, ext)
+			}
+			return f, func() tea.Msg {
+				return FilterChangedMsg{Extensions: f.SelectedExtensions()}
+			}
+		}
+	case "a": // Select all visible
+		for _, es := range filtered {
+			f.selected[es.Ext] = true
 		}
 		return f, func() tea.Msg {
 			return FilterChangedMsg{Extensions: f.SelectedExtensions()}
 		}
+	case "n": // Deselect all visible
+		for _, es := range filtered {
+			delete(f.selected, es.Ext)
+		}
+		return f, func() tea.Msg {
+			return FilterChangedMsg{Extensions: f.SelectedExtensions()}
+		}
+	case "backspace":
+		if len(f.filterText) > 0 {
+			f.filterText = f.filterText[:len(f.filterText)-1]
+			f.cursor = 0
+		}
 	case "esc", "ctrl+f":
 		f.visible = false
+	default:
+		if len(km.String()) == 1 && km.Type == tea.KeyRunes {
+			f.filterText += km.String()
+			f.cursor = 0
+		}
 	}
 
 	return f, nil
 }
 
+func (f FilterMenu) filteredExtensions() []search.ExtensionStats {
+	if f.filterText == "" {
+		return f.extensions
+	}
+	var res []search.ExtensionStats
+	for _, es := range f.extensions {
+		if strings.Contains(strings.ToLower(es.Ext), strings.ToLower(f.filterText)) {
+			res = append(res, es)
+		}
+	}
+	return res
+}
+
 // View renders the filter menu overlay.
 func (f FilterMenu) View() string {
-	if !f.visible || len(f.extensions) == 0 {
+	if !f.visible {
 		return ""
 	}
 
@@ -136,42 +175,52 @@ func (f FilterMenu) View() string {
 		Foreground(lipgloss.AdaptiveColor{Light: "#999999", Dark: "#666666"})
 
 	var lines []string
-	lines = append(lines, titleStyle.Render(" Filter by extension")+" "+dimStyle.Render("(space to toggle, esc to close)"))
+	header := titleStyle.Render(" Filter by extension")
+	if f.filterText != "" {
+		header += dimStyle.Render(" searching: ") + lipgloss.NewStyle().Foreground(accentColor).Render(f.filterText)
+	}
+	lines = append(lines, header)
+	lines = append(lines, dimStyle.Render(" (a: all, n: none, space: toggle, esc: close)"))
 	lines = append(lines, "")
 
-	maxVisible := f.height - 4
-	if maxVisible < 3 {
-		maxVisible = 3
-	}
-	if maxVisible > len(f.extensions) {
-		maxVisible = len(f.extensions)
-	}
+	filtered := f.filteredExtensions()
+	if len(filtered) == 0 {
+		lines = append(lines, dimStyle.Render("  No matching extensions"))
+	} else {
+		maxVisible := f.height - 6
+		if maxVisible < 3 {
+			maxVisible = 3
+		}
+		if maxVisible > len(filtered) {
+			maxVisible = len(filtered)
+		}
 
-	// Scroll window around cursor.
-	start := 0
-	if f.cursor >= maxVisible {
-		start = f.cursor - maxVisible + 1
-	}
-	end := start + maxVisible
-	if end > len(f.extensions) {
-		end = len(f.extensions)
-		start = end - maxVisible
-		if start < 0 {
-			start = 0
+		// Scroll window around cursor.
+		start := 0
+		if f.cursor >= maxVisible {
+			start = f.cursor - maxVisible + 1
 		}
-	}
+		end := start + maxVisible
+		if end > len(filtered) {
+			end = len(filtered)
+			start = end - maxVisible
+			if start < 0 {
+				start = 0
+			}
+		}
 
-	for i := start; i < end; i++ {
-		es := f.extensions[i]
-		check := "[ ]"
-		if f.selected[es.Ext] {
-			check = "[x]"
+		for i := start; i < end; i++ {
+			es := filtered[i]
+			check := "[ ]"
+			if f.selected[es.Ext] {
+				check = "[✓]"
+			}
+			line := fmt.Sprintf(" %s %-10s (%d files)", check, es.Ext, es.Count)
+			if i == f.cursor {
+				line = selStyle.Render(line)
+			}
+			lines = append(lines, line)
 		}
-		line := fmt.Sprintf(" %s %-8s %d files", check, es.Ext, es.Count)
-		if i == f.cursor {
-			line = selStyle.Render(line)
-		}
-		lines = append(lines, line)
 	}
 
 	content := strings.Join(lines, "\n")
@@ -180,7 +229,7 @@ func (f FilterMenu) View() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}).
 		Padding(0, 1).
-		Width(40)
+		Width(45)
 
 	return boxStyle.Render(content)
 }
