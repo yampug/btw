@@ -20,6 +20,7 @@ type FileEntry struct {
 	Size    int64     // File size in bytes
 	ModTime time.Time // Last modification time
 	IsDir   bool
+	IsRemote bool // True if this file was discovered over SSH
 }
 
 // WalkOptions controls walker behaviour.
