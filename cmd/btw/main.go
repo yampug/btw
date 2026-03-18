@@ -36,6 +36,7 @@ func main() {
 	remoteHostLong := flag.String("remote", "", "connect to remote host over SSH")
 	remoteHostShort := flag.String("r", "", "connect to remote host over SSH (shorthand)")
 	deployAgent := flag.Bool("deploy-agent", false, "deploy btw-agent to remote host")
+	testQuery   := flag.String("test-query", "", "run a specific query and auto-select first result (for testing)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	
 	flag.Usage = func() {
@@ -171,7 +172,8 @@ func main() {
 
 	// Parse initial state
 	initState := tui.InitialState{
-		Query: initialQuery,
+		Query:     initialQuery,
+		TestQuery: *testQuery,
 	}
 	if isRemote {
 		initState.RemoteHost = remoteCfg.Host
@@ -241,7 +243,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	a, ok := m.(tui.App)
+	a, ok := m.(*tui.App)
 	if !ok {
 		return
 	}

@@ -93,6 +93,7 @@ type InitialState struct {
 	ProjectOnly *bool // nil means use config default
 	RemoteHost  string // non-empty if connected to a remote session
 	ConnectFunc func(context.Context) (search.DataSource, time.Duration, error)
+	TestQuery   string // for headless testing
 }
 
 // App is the top-level Bubble Tea model composing all TUI components.
@@ -124,10 +125,11 @@ type App struct {
 	
 	textDebounce   time.Duration
 	fileDebounce   time.Duration
+	testQuery      string
 }
 
 // NewApp returns an initialized App with the given file index and config.
-func NewApp(idx *search.Index, cfg *config.Config, init InitialState) App {
+func NewApp(idx *search.Index, cfg *config.Config, init InitialState) *App {
 	if cfg == nil {
 		cfg = config.NewDefaultConfig()
 	}
@@ -184,7 +186,7 @@ func NewApp(idx *search.Index, cfg *config.Config, init InitialState) App {
 		input.SetFilter(fm.BadgeText())
 	}
 
-	return App{
+	return &App{
 		tabBar:         tb,
 		input:          input,
 		resultList:     NewResultList(theme),
@@ -203,20 +205,24 @@ func NewApp(idx *search.Index, cfg *config.Config, init InitialState) App {
 		connectFunc:    init.ConnectFunc,
 		textDebounce:   250 * time.Millisecond,
 		fileDebounce:   100 * time.Millisecond,
+		testQuery:      init.TestQuery,
 	}
 }
 
 // Chosen returns the result selected by the user, or nil if they quit without selecting.
-func (a App) Chosen() *model.SearchResult {
+func (a *App) Chosen() *model.SearchResult {
 	return a.chosen
 }
 
 // LineNum returns the line number parsed from the input, if any.
-func (a App) LineNum() int {
+func (a *App) LineNum() int {
 	return a.input.LineNum()
 }
 
-func (a App) Init() tea.Cmd {
+func (a *App) Init() tea.Cmd {
+	if a.testQuery != "" {
+		a.input.SetValue(a.testQuery)
+	}
 	if a.connectFunc != nil {
 		a.isConnecting = true
 		return tea.Batch(a.input.Focus(), a.triggerConnect())
@@ -236,7 +242,7 @@ type ConnectResultMsg struct {
 
 type DisconnectedMsg struct{}
 
-func (a App) triggerConnect() tea.Cmd {
+func (a *App) triggerConnect() tea.Cmd {
 	if a.connectFunc == nil {
 		return nil
 	}
@@ -246,7 +252,7 @@ func (a App) triggerConnect() tea.Cmd {
 	}
 }
 
-func (a App) watchConnection(ds search.DataSource) tea.Cmd {
+func (a *App) watchConnection(ds search.DataSource) tea.Cmd {
 	return func() tea.Msg {
 		ch := ds.Done()
 		if ch == nil {
@@ -269,7 +275,7 @@ func isNavigationKey(msg tea.Msg) bool {
 	return false
 }
 
-func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
@@ -484,6 +490,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.resultList.SetItems(msg.Items, false)
 		}
 		a.resultList.SetTotalMatched(msg.TotalMatched)
+
+		// HEADLESS TESTING: Auto-select first result if testQuery is set.
+		if a.testQuery != "" && len(msg.Items) > 0 {
+			if r, ok := a.resultList.Selected(); ok {
+				a.chosen = &r
+				return a, tea.Quit
+			}
+		}
+
 		if !msg.Done && msg.Ch != nil {
 			cmds = append(cmds, a.waitForResults(msg.ID, msg.Ch))
 		}
@@ -603,7 +618,7 @@ func isPrintable(msg tea.Msg) bool {
 type IndexUpdatedMsg struct{}
 
 // waitForResults waits for the next message on the results channel.
-func (a App) waitForResults(id SearchID, ch chan ResultsMsg) tea.Cmd {
+func (a *App) waitForResults(id SearchID, ch chan ResultsMsg) tea.Cmd {
 	return func() tea.Msg {
 		msg, ok := <-ch
 		if !ok {
@@ -614,7 +629,7 @@ func (a App) waitForResults(id SearchID, ch chan ResultsMsg) tea.Cmd {
 }
 
 // waitForIndexProgress waits for the next message on the index progress channel.
-func (a App) waitForIndexProgress(ch chan IndexProgressMsg) tea.Cmd {
+func (a *App) waitForIndexProgress(ch chan IndexProgressMsg) tea.Cmd {
 	return func() tea.Msg {
 		msg, ok := <-ch
 		if !ok {
@@ -640,7 +655,7 @@ func (a *App) layout(w, h int) {
 	a.helpOverlay.SetSize(w-10, h-4)
 }
 
-func (a App) refreshIndex() tea.Cmd {
+func (a *App) refreshIndex() tea.Cmd {
 	if a.index == nil {
 		return nil
 	}
@@ -1199,7 +1214,7 @@ func (a App) triggerGrepSearch(id SearchID) tea.Cmd {
 	return a.waitForResults(id, ch)
 }
 
-func (a App) View() string {
+func (a *App) View() string {
 	if a.isConnecting {
 		return lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, "Connecting to remote agent...")
 	}

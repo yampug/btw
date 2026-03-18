@@ -63,6 +63,23 @@ show_hidden: false
 default_scope: project
 ```
 
+## Testing
+
+`btw` uses both in-process integration tests and actual SSH-based tests.
+
+### In-Process Tests (Fast)
+To run tests for the remote agent server without SSH dependencies:
+```bash
+go test ./internal/remote/... -v
+```
+
+### SSH Integration Tests (Real Transport)
+To verify it works over a real SSH connection to `localhost`:
+```bash
+# Requires SSH access to localhost without interactive password prompts
+./test/remote_ssh_test.sh
+```
+
 ## License
 
 MIT
