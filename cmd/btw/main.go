@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/yampug/btw/internal/config"
@@ -198,35 +199,30 @@ func main() {
 	}
 
 	var idx *search.Index
-	// var sess *remote.Session // Pending Story 4.1 integration, we won't hold sess here yet if we don't need it.
 
 	if isRemote {
-		ctx := context.Background()
+		initState.RemoteHost = remoteCfg.Host
 		sessionCfg := remote.SessionConfig{
 			Host:      remoteCfg.Host,
 			Port:      remoteCfg.Port,
 			AgentPath: remoteCfg.AgentPath,
 		}
+		initState.ConnectFunc = func(ctx context.Context) (search.DataSource, error) {
+			sess, err := remote.Dial(ctx, sessionCfg)
+			if err != nil {
+				return nil, fmt.Errorf("error connecting to remote: %v", err)
+			}
+			pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			if err := sess.Ping(pingCtx); err != nil {
+				sess.Close()
+				return nil, fmt.Errorf("agent not responding: %v. Try running with --deploy-agent", err)
+			}
+			return remote.NewRemoteDataSource(sess), nil
+		}
 		
-		fmt.Fprintf(os.Stderr, "Connecting to %s...\n", sessionCfg.Host)
-		sess, err := remote.Dial(ctx, sessionCfg)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error connecting to remote: %v\n", err)
-			os.Exit(1)
-		}
-		defer sess.Close()
-
-		// Verify connection
-		pingCtx, cancel := context.WithTimeout(ctx, 3*1000*1000*1000) // 3 seconds
-		err = sess.Ping(pingCtx)
-		cancel()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: agent not responding: %v. Try running with --deploy-agent\n", err)
-			os.Exit(1)
-		}
-
-		// For now, idx is nil when remote is used.
-		// Epic 4 will replace this with a DataSource interface.
+		idx = search.NewIndex()
+		idx.SetRoot(root)
 	} else {
 		idx = search.NewIndex()
 		idx.SetRoot(root)

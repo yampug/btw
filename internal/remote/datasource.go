@@ -364,3 +364,7 @@ func (r *RemoteDataSource) LoadIgnoreFiles(root string) (*search.IgnoreRules, er
 	rules.LoadPatterns(res.Patterns)
 	return rules, nil
 }
+
+func (r *RemoteDataSource) Done() <-chan struct{} {
+	return r.sess.Done()
+}

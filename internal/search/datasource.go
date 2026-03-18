@@ -10,4 +10,6 @@ type DataSource interface {
 	ExtractSymbols(ctx context.Context, files []FileEntry) []Symbol
 	DetectRoot(startDir string) (string, error)
 	LoadIgnoreFiles(root string) (*IgnoreRules, error)
+	// Done returns a channel that closes when the underlying source is permanently disconnected.
+	Done() <-chan struct{}
 }

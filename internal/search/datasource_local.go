@@ -54,3 +54,8 @@ func (l *LocalDataSource) DetectRoot(startDir string) (string, error) {
 func (l *LocalDataSource) LoadIgnoreFiles(root string) (*IgnoreRules, error) {
 	return LoadIgnoreFiles(root), nil
 }
+
+func (l *LocalDataSource) Done() <-chan struct{} {
+	// A local data source is never "disconnected", so it never closes a done channel.
+	return nil
+}

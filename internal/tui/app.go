@@ -92,6 +92,7 @@ type InitialState struct {
 	Extensions  []string
 	ProjectOnly *bool // nil means use config default
 	RemoteHost  string // non-empty if connected to a remote session
+	ConnectFunc func(context.Context) (search.DataSource, error)
 }
 
 // App is the top-level Bubble Tea model composing all TUI components.
@@ -114,6 +115,12 @@ type App struct {
 	history        *config.History
 	queryCursor    int // -1 means not navigating history
 	remoteHost     string // tracking the remote host for copy operations
+	
+	connectFunc    func(context.Context) (search.DataSource, error)
+	dataSource     search.DataSource
+	connErr        error
+	isDisconnected bool
+	isConnecting   bool
 }
 
 // NewApp returns an initialized App with the given file index and config.
@@ -190,6 +197,7 @@ func NewApp(idx *search.Index, cfg *config.Config, init InitialState) App {
 		history:        hist,
 		queryCursor:    -1,
 		remoteHost:     init.RemoteHost,
+		connectFunc:    init.ConnectFunc,
 	}
 }
 
@@ -204,11 +212,43 @@ func (a App) LineNum() int {
 }
 
 func (a App) Init() tea.Cmd {
+	if a.connectFunc != nil {
+		a.isConnecting = true
+		return tea.Batch(a.input.Focus(), a.triggerConnect())
+	}
 	return tea.Batch(
 		a.input.Focus(),
 		a.refreshIndex(), // Non-blocking index build
 		a.triggerSearch(),
 	)
+}
+
+type ConnectResultMsg struct {
+	DataSource search.DataSource
+	Error      error
+}
+
+type DisconnectedMsg struct{}
+
+func (a App) triggerConnect() tea.Cmd {
+	if a.connectFunc == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ds, err := a.connectFunc(context.Background())
+		return ConnectResultMsg{DataSource: ds, Error: err}
+	}
+}
+
+func (a App) watchConnection(ds search.DataSource) tea.Cmd {
+	return func() tea.Msg {
+		ch := ds.Done()
+		if ch == nil {
+			return nil
+		}
+		<-ch
+		return DisconnectedMsg{}
+	}
 }
 
 func isNavigationKey(msg tea.Msg) bool {
@@ -227,6 +267,25 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case ConnectResultMsg:
+		a.isConnecting = false
+		if msg.Error != nil {
+			a.connErr = msg.Error
+			a.isDisconnected = true
+			return a, nil
+		}
+		a.connErr = nil
+		a.isDisconnected = false
+		a.dataSource = msg.DataSource
+		return a, tea.Batch(
+			a.refreshIndex(),
+			a.triggerSearch(),
+			a.watchConnection(msg.DataSource),
+		)
+	case DisconnectedMsg:
+		a.isDisconnected = true
+		a.connErr = fmt.Errorf("Disconnected — press Ctrl+R to reconnect") // Or just rely on isDisconnected flag
+		return a, nil
 	case IndexProgressMsg:
 		if msg.Done {
 			if a.index != nil {
@@ -267,8 +326,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return a, tea.Quit
 		case "ctrl+r":
-			// Refresh index.
-			cmds = append(cmds, a.statusBar.SetMessage("Refreshing index...", 2*time.Second))
+			if a.isDisconnected && a.connectFunc != nil {
+				a.isConnecting = true
+				a.connErr = nil
+				return a, a.triggerConnect()
+			}
+			// Non-blocking rebuild; results won't appear immediately, but wait for progress
 			cmds = append(cmds, a.refreshIndex())
 			return a, tea.Batch(cmds...)
 		case "ctrl+h":
@@ -565,7 +628,7 @@ func (a App) refreshIndex() tea.Cmd {
 				opts := search.WalkOptions{
 					ExtraIgnorePatterns: a.cfg.IgnorePatterns,
 				}
-				ds := a.index.DataSource()
+				ds := a.dataSource
 				if ds == nil {
 					ds = search.NewLocalDataSource()
 				}
@@ -1111,6 +1174,24 @@ func (a App) triggerGrepSearch(id SearchID) tea.Cmd {
 }
 
 func (a App) View() string {
+	if a.isConnecting {
+		return lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, "Connecting to remote agent...")
+	}
+	if a.isDisconnected {
+		errStr := "Disconnected from remote agent."
+		if a.connErr != nil {
+			errStr = a.connErr.Error()
+		}
+		
+		msg := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(a.theme.TabActive).
+			Padding(1, 2).
+			Render(fmt.Sprintf("%s\n\nPress Ctrl+R to reconnect, or Q to quit.", errStr))
+			
+		return lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, msg)
+	}
+
 	if a.width == 0 || a.height == 0 {
 		return ""
 	}
