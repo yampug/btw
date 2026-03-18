@@ -266,18 +266,40 @@ func main() {
 	}
 
 	var args []string
-	if editor == "zed" {
-		path := chosen.FilePath
-		if line > 0 {
-			path = fmt.Sprintf("%s:%d", path, line)
+	
+	if isRemote {
+		if editor == "zed" || useZedFallback {
+			// Remote Zed
+			path := fmt.Sprintf("ssh://%s%s", remoteCfg.Host, chosen.FilePath)
+			if line > 0 {
+				path = fmt.Sprintf("%s:%d", path, line)
+			}
+			args = []string{path}
+			editor = "zed"
+		} else {
+			// Non-Zed remote editor fallback
+			fmt.Printf("File is on remote host '%s':\n%s\n", remoteCfg.Host, chosen.FilePath)
+			if line > 0 {
+				fmt.Printf("Line: %d\n", line)
+			}
+			fmt.Printf("\nUse `ssh %s` to access this host or use Zed for remote editing.\n", remoteCfg.Host)
+			return
 		}
-		// Passing the project root helps Zed find the go.mod for gopls.
-		args = []string{projectRoot, path}
 	} else {
-		args = []string{chosen.FilePath}
-		if line > 0 {
-			// Most editors accept +N to jump to a line.
-			args = []string{fmt.Sprintf("+%d", line), chosen.FilePath}
+		// Existing local logic
+		if editor == "zed" {
+			path := chosen.FilePath
+			if line > 0 {
+				path = fmt.Sprintf("%s:%d", path, line)
+			}
+			// Passing the project root helps Zed find the go.mod for gopls.
+			args = []string{projectRoot, path}
+		} else {
+			args = []string{chosen.FilePath}
+			if line > 0 {
+				// Most editors accept +N to jump to a line.
+				args = []string{fmt.Sprintf("+%d", line), chosen.FilePath}
+			}
 		}
 	}
 
