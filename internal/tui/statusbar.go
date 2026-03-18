@@ -31,6 +31,7 @@ type StatusBar struct {
 	theme       Theme
 	root        string // formatted project root
 	remoteHost  string // non-empty if connected to a remote session
+	rtt         time.Duration
 }
 
 // NewStatusBar returns an initialized StatusBar with the given theme.
@@ -55,6 +56,11 @@ func (s *StatusBar) SetCounts(selected, total int) {
 // SetRemoteHost sets the remote host name to display the link indicator.
 func (s *StatusBar) SetRemoteHost(host string) {
 	s.remoteHost = host
+}
+
+// SetRTT sets the round trip time latency for remote mode.
+func (s *StatusBar) SetRTT(rtt time.Duration) {
+	s.rtt = rtt
 }
 
 // SetRoot sets and formats the project root path.
@@ -144,7 +150,13 @@ func (s StatusBar) View() string {
 		// Use accent color for remote host to visually differentiate
 		remoteStyle := lipgloss.NewStyle().Foreground(s.theme.InputIcon).Bold(true)
 		pathStyle := lipgloss.NewStyle().Foreground(s.theme.DimForeground)
-		pathText = fmt.Sprintf("🔗 %s  %s", remoteStyle.Render(s.remoteHost), pathStyle.Render(s.root))
+		
+		rttIndicator := ""
+		if s.rtt > 0 {
+			rttIndicator = fmt.Sprintf(" (~%dms)", s.rtt.Milliseconds())
+		}
+		
+		pathText = fmt.Sprintf("🔗 %s%s  %s", remoteStyle.Render(s.remoteHost), pathStyle.Render(rttIndicator), pathStyle.Render(s.root))
 	} else if pathText != "" {
 		pathText = lipgloss.NewStyle().Foreground(s.theme.DimForeground).Render(pathText)
 	}

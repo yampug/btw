@@ -207,18 +207,22 @@ func main() {
 			Port:      remoteCfg.Port,
 			AgentPath: remoteCfg.AgentPath,
 		}
-		initState.ConnectFunc = func(ctx context.Context) (search.DataSource, error) {
+		initState.ConnectFunc = func(ctx context.Context) (search.DataSource, time.Duration, error) {
 			sess, err := remote.Dial(ctx, sessionCfg)
 			if err != nil {
-				return nil, fmt.Errorf("error connecting to remote: %v", err)
+				return nil, 0, fmt.Errorf("error connecting to remote: %v", err)
 			}
 			pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
+			
+			start := time.Now()
 			if err := sess.Ping(pingCtx); err != nil {
 				sess.Close()
-				return nil, fmt.Errorf("agent not responding: %v. Try running with --deploy-agent", err)
+				return nil, 0, fmt.Errorf("agent not responding: %v. Try running with --deploy-agent", err)
 			}
-			return remote.NewRemoteDataSource(sess), nil
+			rtt := time.Since(start)
+			
+			return remote.NewRemoteDataSource(sess), rtt, nil
 		}
 		
 		idx = search.NewIndex()

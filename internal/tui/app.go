@@ -92,7 +92,7 @@ type InitialState struct {
 	Extensions  []string
 	ProjectOnly *bool // nil means use config default
 	RemoteHost  string // non-empty if connected to a remote session
-	ConnectFunc func(context.Context) (search.DataSource, error)
+	ConnectFunc func(context.Context) (search.DataSource, time.Duration, error)
 }
 
 // App is the top-level Bubble Tea model composing all TUI components.
@@ -116,11 +116,14 @@ type App struct {
 	queryCursor    int // -1 means not navigating history
 	remoteHost     string // tracking the remote host for copy operations
 	
-	connectFunc    func(context.Context) (search.DataSource, error)
+	connectFunc    func(context.Context) (search.DataSource, time.Duration, error)
 	dataSource     search.DataSource
 	connErr        error
 	isDisconnected bool
 	isConnecting   bool
+	
+	textDebounce   time.Duration
+	fileDebounce   time.Duration
 }
 
 // NewApp returns an initialized App with the given file index and config.
@@ -198,6 +201,8 @@ func NewApp(idx *search.Index, cfg *config.Config, init InitialState) App {
 		queryCursor:    -1,
 		remoteHost:     init.RemoteHost,
 		connectFunc:    init.ConnectFunc,
+		textDebounce:   250 * time.Millisecond,
+		fileDebounce:   100 * time.Millisecond,
 	}
 }
 
@@ -225,6 +230,7 @@ func (a App) Init() tea.Cmd {
 
 type ConnectResultMsg struct {
 	DataSource search.DataSource
+	RTT        time.Duration
 	Error      error
 }
 
@@ -235,8 +241,8 @@ func (a App) triggerConnect() tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		ds, err := a.connectFunc(context.Background())
-		return ConnectResultMsg{DataSource: ds, Error: err}
+		ds, rtt, err := a.connectFunc(context.Background())
+		return ConnectResultMsg{DataSource: ds, RTT: rtt, Error: err}
 	}
 }
 
@@ -277,6 +283,25 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.connErr = nil
 		a.isDisconnected = false
 		a.dataSource = msg.DataSource
+		
+		rtt := msg.RTT
+		a.statusBar.SetRTT(rtt)
+		
+		a.textDebounce = 200 * time.Millisecond
+		if rtt*2 > a.textDebounce {
+			a.textDebounce = rtt * 2
+		}
+		a.fileDebounce = 100 * time.Millisecond
+		if rtt > a.fileDebounce {
+			a.fileDebounce = rtt
+		}
+		
+		if a.tabBar.Active() == model.TabText {
+			a.input.SetDebounce(a.textDebounce)
+		} else {
+			a.input.SetDebounce(a.fileDebounce)
+		}
+
 		return a, tea.Batch(
 			a.refreshIndex(),
 			a.triggerSearch(),
@@ -465,10 +490,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case TabChangedMsg:
 		a.tabBar.SetActive(msg.Tab)
 		if msg.Tab == model.TabText {
-			a.input.SetDebounce(250 * time.Millisecond)
+			a.input.SetDebounce(a.textDebounce)
 		} else {
-			a.input.SetDebounce(100 * time.Millisecond)
+			a.input.SetDebounce(a.fileDebounce)
 		}
+		a.input.Focus()
 		a.queryCursor = -1
 		a.resultList.SetLoading(true)
 		cmds = append(cmds, a.resultList.SpinnerTick(), a.triggerSearch())
