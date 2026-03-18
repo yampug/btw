@@ -29,8 +29,7 @@ func buildGrepTestDir(t *testing.T) (string, *Index) {
 	}
 
 	idx := NewIndex()
-	rules := &IgnoreRules{}
-	idx.RebuildFrom(context.Background(), dir, rules, WalkOptions{IncludeHidden: true}, nil)
+	idx.RebuildFrom(context.Background(), NewLocalDataSource(), dir, WalkOptions{IncludeHidden: true}, nil)
 	return dir, idx
 }
 

@@ -48,6 +48,8 @@ type Index struct {
 	extIndex  map[string][]int // extension (e.g. ".go") → indices
 	symbols   []Symbol         // populated by ExtractSymbols
 	root      string
+	ds        DataSource       // allows search commands to forward to remote
+
 }
 
 // Root returns the project root path.
@@ -55,6 +57,13 @@ func (idx *Index) Root() string {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 	return idx.root
+}
+
+// DataSource returns the data source used to build the index.
+func (idx *Index) DataSource() DataSource {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	return idx.ds
 }
 
 // SetRoot sets the project root path.
@@ -110,15 +119,17 @@ func (idx *Index) BuildFrom(ch <-chan FileEntry, progress func(count int)) {
 	idx.mu.Unlock()
 }
 
-// RebuildFrom rebuilds the index from a new walk, replacing existing data.
-// Can be called while readers are using the old index (swap is atomic under lock).
-func (idx *Index) RebuildFrom(ctx context.Context, root string, rules *IgnoreRules, opts WalkOptions, progress func(int)) {
+// RebuildFrom rebuilds the index from a new walk using the provided DataSource.
+func (idx *Index) RebuildFrom(ctx context.Context, ds DataSource, root string, opts WalkOptions, progress func(int)) {
 	idx.mu.Lock()
 	idx.root = root
+	idx.ds = ds
 	idx.mu.Unlock()
-	ch := Walk(ctx, root, rules, opts)
+	ch := ds.Walk(ctx, root, opts)
 	idx.BuildFrom(ch, progress)
-	idx.ExtractSymbols()
+	
+	// Delegate symbol extraction to the DataSource.
+	idx.symbols = ds.ExtractSymbols(ctx, idx.files)
 }
 
 // Len returns the number of indexed files.

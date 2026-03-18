@@ -40,11 +40,10 @@ func HandleGrep(ctx context.Context, id int, params json.RawMessage, enc *Encode
 	// Build a temporary index for this grep request.
 	// In production the agent would cache this, but for correctness each
 	// request gets a fresh walk matching the current state of the filesystem.
-	rules := search.LoadIgnoreFiles(p.Root)
 	idx := search.NewIndex()
 	// Walk with IncludeHidden=true so all files are in the index.
 	// The grep options handle hidden-file filtering at query time.
-	idx.RebuildFrom(ctx, p.Root, rules, search.WalkOptions{IncludeHidden: true}, nil)
+	idx.RebuildFrom(ctx, search.NewLocalDataSource(), p.Root, search.WalkOptions{IncludeHidden: true}, nil)
 
 	if ctx.Err() != nil {
 		return enc.Send(NewCancelledEnvelope(id))

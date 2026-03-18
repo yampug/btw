@@ -33,6 +33,8 @@ type WalkOptions struct {
 	Workers int
 	// MaxDepth caps directory traversal depth. Defaults to 100.
 	MaxDepth int
+	// ExtraIgnorePatterns allows appending ad-hoc globals (from config) to the base ignore rules.
+	ExtraIgnorePatterns []string
 }
 
 // Walk concurrently traverses the project tree rooted at root, emitting

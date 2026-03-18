@@ -63,9 +63,8 @@ func HandleSymbols(ctx context.Context, id int, params json.RawMessage, enc *Enc
 	}
 
 	// Build index and extract symbols.
-	rules := search.LoadIgnoreFiles(p.Root)
 	idx := search.NewIndex()
-	idx.RebuildFrom(ctx, p.Root, rules, search.WalkOptions{}, nil)
+	idx.RebuildFrom(ctx, search.NewLocalDataSource(), p.Root, search.WalkOptions{}, nil)
 
 	if ctx.Err() != nil {
 		return enc.Send(NewCancelledEnvelope(id))

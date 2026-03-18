@@ -552,11 +552,14 @@ func (a App) refreshIndex() tea.Cmd {
 		func() tea.Msg {
 			go func() {
 				defer close(ch)
-				rules := search.LoadIgnoreFiles(root)
-				if len(a.cfg.IgnorePatterns) > 0 {
-					rules.LoadPatterns(a.cfg.IgnorePatterns)
+				opts := search.WalkOptions{
+					ExtraIgnorePatterns: a.cfg.IgnorePatterns,
 				}
-				a.index.RebuildFrom(context.Background(), root, rules, search.WalkOptions{}, func(count int) {
+				ds := a.index.DataSource()
+				if ds == nil {
+					ds = search.NewLocalDataSource()
+				}
+				a.index.RebuildFrom(context.Background(), ds, root, opts, func(count int) {
 					ch <- IndexProgressMsg{Count: count, Done: false, Ch: ch}
 				})
 				ch <- IndexProgressMsg{Done: true}

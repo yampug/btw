@@ -21,9 +21,7 @@ func buildSymbolTestIndex(t *testing.T, files map[string]string) *Index {
 	}
 
 	idx := NewIndex()
-	rules := &IgnoreRules{}
-	idx.RebuildFrom(context.Background(), dir, rules, WalkOptions{}, nil)
-	idx.ExtractSymbols()
+	idx.RebuildFrom(context.Background(), NewLocalDataSource(), dir, WalkOptions{}, nil)
 	return idx
 }
 
@@ -432,9 +430,7 @@ func TestSearchSymbols_SkipsHidden(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "visible.go"), []byte("package v\nfunc Visible() {}\n"), 0o644)
 
 	idx := NewIndex()
-	rules := &IgnoreRules{}
-	idx.RebuildFrom(context.Background(), dir, rules, WalkOptions{IncludeHidden: true}, nil)
-	idx.ExtractSymbols()
+	idx.RebuildFrom(context.Background(), NewLocalDataSource(), dir, WalkOptions{IncludeHidden: true}, nil)
 
 	results := idx.SearchSymbols(context.Background(), "", 100, false, false, nil).Items
 	for _, r := range results {

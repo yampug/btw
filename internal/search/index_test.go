@@ -211,8 +211,7 @@ func TestIndex_RebuildFrom(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a"), 0o644)
 
 	idx := NewIndex()
-	rules := &IgnoreRules{}
-	idx.RebuildFrom(context.Background(), dir, rules, WalkOptions{}, nil)
+	idx.RebuildFrom(context.Background(), NewLocalDataSource(), dir, WalkOptions{}, nil)
 
 	if idx.Len() != 1 {
 		t.Fatalf("expected 1 file after first build, got %d", idx.Len())
@@ -220,7 +219,7 @@ func TestIndex_RebuildFrom(t *testing.T) {
 
 	// Add another file and rebuild.
 	os.WriteFile(filepath.Join(dir, "b.go"), []byte("package b"), 0o644)
-	idx.RebuildFrom(context.Background(), dir, rules, WalkOptions{}, nil)
+	idx.RebuildFrom(context.Background(), NewLocalDataSource(), dir, WalkOptions{}, nil)
 
 	if idx.Len() != 2 {
 		t.Fatalf("expected 2 files after rebuild, got %d", idx.Len())
