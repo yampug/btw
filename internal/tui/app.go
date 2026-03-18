@@ -1063,7 +1063,7 @@ func (a App) triggerGrepSearch(id SearchID) tea.Cmd {
 		defer cancel()
 		defer close(ch)
 
-		grepCh := search.Grep(ctx, idx, query, search.GrepOptions{
+		grepCh := idx.DataSource().Grep(ctx, idx.Root(), query, search.GrepOptions{
 			IncludeHidden: includeHidden,
 			ProjectOnly:   projectOnly,
 			MaxResults:    a.cfg.MaxResults,
