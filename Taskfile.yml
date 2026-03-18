@@ -3,12 +3,26 @@ version: '3'
 vars:
   VERSION: {sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"}
   LDFLAGS: "-X main.version={{.VERSION}}"
+  AGENT_LDFLAGS: "-s -w -X main.version={{.VERSION}}"
 
 tasks:
   build:
     desc: Build the btw binary with version info
     cmds:
       - go build -ldflags '{{.LDFLAGS}}' -o btw ./cmd/btw
+
+  build-agent:
+    desc: Build btw-agent for the current platform
+    cmds:
+      - go build -ldflags '{{.AGENT_LDFLAGS}}' -o btw-agent ./cmd/btw-agent
+
+  build-agent-all:
+    desc: Cross-compile btw-agent for linux/amd64 and linux/arm64 (static)
+    cmds:
+      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '{{.AGENT_LDFLAGS}}' -o btw-agent-linux-amd64 ./cmd/btw-agent
+      - CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags '{{.AGENT_LDFLAGS}}' -o btw-agent-linux-arm64 ./cmd/btw-agent
+      - echo "Built binaries:"
+      - ls -lh btw-agent-linux-*
 
   install:
     desc: Install btw to $GOPATH/bin
@@ -36,7 +50,7 @@ tasks:
       - go test ./internal/search/... -bench=. -benchmem
 
   clean:
-    desc: Remove binary and clean cache
+    desc: Remove binaries and clean cache
     cmds:
-      - rm -f btw
+      - rm -f btw btw-agent btw-agent-linux-*
       - go clean

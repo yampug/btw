@@ -31,6 +31,8 @@ func main() {
 	server.Handle(remote.MethodWalk, remote.HandleWalk)
 	server.Handle(remote.MethodGrep, remote.HandleGrep)
 	server.Handle(remote.MethodSymbols, remote.HandleSymbols)
+	server.Handle(remote.MethodDetectRoot, remote.HandleDetectRoot)
+	server.Handle(remote.MethodReadIgnore, remote.HandleReadIgnore)
 
 	if err := server.Serve(context.Background(), dec, enc); err != nil {
 		logger.Printf("fatal: %v", err)
