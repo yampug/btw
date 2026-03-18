@@ -30,6 +30,7 @@ type StatusBar struct {
 	messageID   int // to avoid clearing a newer message
 	theme       Theme
 	root        string // formatted project root
+	remoteHost  string // non-empty if connected to a remote session
 }
 
 // NewStatusBar returns an initialized StatusBar with the given theme.
@@ -51,11 +52,18 @@ func (s *StatusBar) SetCounts(selected, total int) {
 	s.total = total
 }
 
-// SetRoot sets and formats the project root path (using ~ for home).
+// SetRemoteHost sets the remote host name to display the link indicator.
+func (s *StatusBar) SetRemoteHost(host string) {
+	s.remoteHost = host
+}
+
+// SetRoot sets and formats the project root path.
 func (s *StatusBar) SetRoot(root string) {
-	home, err := os.UserHomeDir()
-	if err == nil && strings.HasPrefix(root, home) {
-		root = "~" + strings.TrimPrefix(root, home)
+	if s.remoteHost == "" {
+		home, err := os.UserHomeDir()
+		if err == nil && strings.HasPrefix(root, home) {
+			root = "~" + strings.TrimPrefix(root, home)
+		}
 	}
 	s.root = root
 }
@@ -130,12 +138,24 @@ func (s StatusBar) View() string {
 
 	// Right side: Root + Result count.
 	countText := fmt.Sprintf("%d/%d results", s.selected, s.total)
-	if s.root != "" {
-		countText = fmt.Sprintf("%s  ·  %s", s.root, countText)
+	
+	pathText := s.root
+	if s.remoteHost != "" {
+		// Use accent color for remote host to visually differentiate
+		remoteStyle := lipgloss.NewStyle().Foreground(s.theme.InputIcon).Bold(true)
+		pathStyle := lipgloss.NewStyle().Foreground(s.theme.DimForeground)
+		pathText = fmt.Sprintf("🔗 %s  %s", remoteStyle.Render(s.remoteHost), pathStyle.Render(s.root))
+	} else if pathText != "" {
+		pathText = lipgloss.NewStyle().Foreground(s.theme.DimForeground).Render(pathText)
 	}
-	countStyle := lipgloss.NewStyle().
-		Foreground(s.theme.DimForeground)
-	right := countStyle.Render(countText + " ")
+
+	rightContent := pathText
+	if rightContent != "" {
+		rightContent += "  ·  "
+	}
+	rightContent += lipgloss.NewStyle().Foreground(s.theme.DimForeground).Render(countText) + " "
+	
+	right := rightContent
 
 	// Fill gap between parts.
 	gap := s.width - lipgloss.Width(left) - lipgloss.Width(message) - lipgloss.Width(right)

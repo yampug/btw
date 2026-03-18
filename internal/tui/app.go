@@ -143,6 +143,9 @@ func NewApp(idx *search.Index, cfg *config.Config, init InitialState) App {
 	}
 
 	sb := NewStatusBar(theme)
+	if init.RemoteHost != "" {
+		sb.SetRemoteHost(init.RemoteHost)
+	}
 	if idx != nil {
 		sb.SetRoot(idx.Root())
 	}
