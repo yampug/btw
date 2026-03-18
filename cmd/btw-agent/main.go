@@ -28,9 +28,8 @@ func main() {
 	enc := remote.NewEncoder(os.Stdout)
 
 	server := remote.NewAgentServer(logger)
-
-	// Future stories will register walk, grep, symbols, etc. handlers here.
-	// For now only ping/pong is built-in.
+	server.Handle(remote.MethodWalk, remote.HandleWalk)
+	server.Handle(remote.MethodGrep, remote.HandleGrep)
 
 	if err := server.Serve(context.Background(), dec, enc); err != nil {
 		logger.Printf("fatal: %v", err)
