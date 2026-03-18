@@ -172,6 +172,9 @@ func main() {
 	initState := tui.InitialState{
 		Query: initialQuery,
 	}
+	if isRemote {
+		initState.RemoteHost = remoteCfg.Host
+	}
 
 	switch strings.ToLower(*tabName) {
 	case "classes": initState.Tab = model.TabClasses

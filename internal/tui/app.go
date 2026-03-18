@@ -91,6 +91,7 @@ type InitialState struct {
 	Tab         model.Tab
 	Extensions  []string
 	ProjectOnly *bool // nil means use config default
+	RemoteHost  string // non-empty if connected to a remote session
 }
 
 // App is the top-level Bubble Tea model composing all TUI components.
@@ -112,6 +113,7 @@ type App struct {
 	theme          Theme
 	history        *config.History
 	queryCursor    int // -1 means not navigating history
+	remoteHost     string // tracking the remote host for copy operations
 }
 
 // NewApp returns an initialized App with the given file index and config.
@@ -177,13 +179,14 @@ func NewApp(idx *search.Index, cfg *config.Config, init InitialState) App {
 		filterMenu:     fm,
 		helpOverlay:    NewHelpOverlay(theme),
 		index:          idx,
-		searchCancel:   &searchCanceler{},
+		searchCancel:   &searchCanceler{id: 0},
 		actionRegistry: NewActionRegistry(),
 		showHidden:     cfg.ShowHidden,
 		cfg:            cfg,
 		theme:          theme,
 		history:        hist,
 		queryCursor:    -1,
+		remoteHost:     init.RemoteHost,
 	}
 }
 
@@ -319,7 +322,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Batch(cmds...)
 		case "ctrl+y":
 			if r, ok := a.resultList.Selected(); ok && r.FilePath != "" {
-				if err := clipboard.WriteAll(r.FilePath); err == nil {
+				path := r.FilePath
+				if a.remoteHost != "" {
+					path = fmt.Sprintf("%s:%s", a.remoteHost, path)
+				}
+				if err := clipboard.WriteAll(path); err == nil {
 					cmds = append(cmds, a.statusBar.SetMessage("Copied absolute path!", 2*time.Second))
 				}
 			}
