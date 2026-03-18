@@ -30,6 +30,7 @@ func main() {
 	server := remote.NewAgentServer(logger)
 	server.Handle(remote.MethodWalk, remote.HandleWalk)
 	server.Handle(remote.MethodGrep, remote.HandleGrep)
+	server.Handle(remote.MethodSymbols, remote.HandleSymbols)
 
 	if err := server.Serve(context.Background(), dec, enc); err != nil {
 		logger.Printf("fatal: %v", err)
