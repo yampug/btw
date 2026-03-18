@@ -1,15 +1,18 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/yampug/btw/internal/config"
 	"github.com/yampug/btw/internal/model"
+	"github.com/yampug/btw/internal/remote"
 	"github.com/yampug/btw/internal/search"
 	"github.com/yampug/btw/internal/tui"
 )
@@ -29,6 +32,8 @@ func main() {
 	searchPath := flag.String("p", "", "search in a specific directory (default: cwd)")
 	searchPathLong := flag.String("path", "", "search in a specific directory (shorthand for -p)")
 	noColor := flag.Bool("no-color", false, "disable colors")
+	remoteHost := flag.String("remote", "", "connect to remote host over SSH")
+	deployAgent := flag.Bool("deploy-agent", false, "deploy btw-agent to remote host")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	
 	flag.Usage = func() {
@@ -41,6 +46,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  btw -t files main       Launch on Files tab searching \"main\"\n")
 		fmt.Fprintf(os.Stderr, "  btw -f go NewMatcher    Launch filtering .go files, searching \"NewMatcher\"\n")
 		fmt.Fprintf(os.Stderr, "  btw -p ~/projects/foo   Search in a specific directory\n")
+		fmt.Fprintf(os.Stderr, "  btw --remote dev        Connect to remote host 'dev'\n")
+		fmt.Fprintf(os.Stderr, "  btw --remote dev --deploy-agent  Deploy btw-agent to remote host\n")
 	}
 
 	flag.Parse()
@@ -48,6 +55,48 @@ func main() {
 	if *showVersion {
 		fmt.Printf("btw version %s\n", version)
 		return
+	}
+
+	if *noColor {
+		os.Setenv("NO_COLOR", "1")
+	}
+
+	if *deployAgent {
+		if *remoteHost == "" {
+			fmt.Fprintf(os.Stderr, "error: --deploy-agent requires --remote\n")
+			os.Exit(1)
+		}
+		
+		fmt.Printf("Deploying agent to %s...\n", *remoteHost)
+		ctx := context.Background()
+		
+		exePath, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error finding executable: %v\n", err)
+			os.Exit(1)
+		}
+		
+		cfg := remote.DeployConfig{
+			Host:        *remoteHost,
+			LocalBinDir: filepath.Dir(exePath),
+		}
+		
+		deployed, err := remote.AutoDeploy(ctx, cfg, version)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error deploying agent: %v\n", err)
+			os.Exit(1) // Failed deployment
+		}
+		
+		if deployed {
+			fmt.Println("Agent successfully deployed and up to date.")
+		} else {
+			fmt.Println("Agent is already installed and up to date.")
+		}
+		
+		// If only deploying (no query/other args), we're done.
+		if flag.NArg() == 0 && *tabName == "all" {
+			return
+		}
 	}
 
 	if *noColor {
