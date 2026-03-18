@@ -61,13 +61,30 @@ func main() {
 		os.Setenv("NO_COLOR", "1")
 	}
 
+	// Resolve shorthand/longhand flags
+	if *tabNameLong != "" { tabName = tabNameLong }
+	if *filterExtsLong != "" { filterExts = filterExtsLong }
+	if *scopeStrLong != "" { scopeStr = scopeStrLong }
+	if *searchPathLong != "" { searchPath = searchPathLong }
+
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: error loading config: %v\n", err)
+	}
+
 	if *deployAgent {
 		if *remoteHost == "" {
 			fmt.Fprintf(os.Stderr, "error: --deploy-agent requires --remote\n")
 			os.Exit(1)
 		}
 		
-		fmt.Printf("Deploying agent to %s...\n", *remoteHost)
+		remoteCfg, ok := cfg.Remotes[*remoteHost]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "error: remote not found: %s\n", *remoteHost)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Deploying agent to %s...\n", remoteCfg.Host)
 		ctx := context.Background()
 		
 		exePath, err := os.Executable()
@@ -76,12 +93,14 @@ func main() {
 			os.Exit(1)
 		}
 		
-		cfg := remote.DeployConfig{
-			Host:        *remoteHost,
+		deployConfig := remote.DeployConfig{
+			Host:        remoteCfg.Host,
+			Port:        remoteCfg.Port,
+			AgentPath:   remoteCfg.AgentPath,
 			LocalBinDir: filepath.Dir(exePath),
 		}
 		
-		deployed, err := remote.AutoDeploy(ctx, cfg, version)
+		deployed, err := remote.AutoDeploy(ctx, deployConfig, version)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error deploying agent: %v\n", err)
 			os.Exit(1) // Failed deployment
@@ -97,21 +116,12 @@ func main() {
 		if flag.NArg() == 0 && *tabName == "all" {
 			return
 		}
-	}
-
-	if *noColor {
-		os.Setenv("NO_COLOR", "1")
-	}
-
-	// Resolve shorthand/longhand flags
-	if *tabNameLong != "" { tabName = tabNameLong }
-	if *filterExtsLong != "" { filterExts = filterExtsLong }
-	if *scopeStrLong != "" { scopeStr = scopeStrLong }
-	if *searchPathLong != "" { searchPath = searchPathLong }
-
-	cfg, err := config.Load(*configPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: error loading config: %v\n", err)
+	} else if *remoteHost != "" {
+		_, ok := cfg.Remotes[*remoteHost]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "error: remote not found: %s\n", *remoteHost)
+			os.Exit(1)
+		}
 	}
 
 	cwd, _ := os.Getwd()
@@ -212,7 +222,7 @@ func main() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		if os.IsNotExist(err) || (useZedFallback && err != nil) {
+		if os.IsNotExist(err) || useZedFallback {
 			if useZedFallback {
 				fmt.Fprintf(os.Stderr, "error: 'zed' or $EDITOR not found. Please set your $EDITOR environment variable.\n")
 			} else {

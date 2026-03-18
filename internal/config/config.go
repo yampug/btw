@@ -16,7 +16,16 @@ type Config struct {
 	DefaultScope   string            `yaml:"default_scope"`   // project | all
 	IgnorePatterns []string          `yaml:"ignore_patterns"` // additional ignore patterns
 	Keybindings    map[string]string `yaml:"keybindings"`     // custom key overrides
-	SymbolLanguages []string         `yaml:"symbol_languages"` // languages for symbol extraction
+	SymbolLanguages []string                `yaml:"symbol_languages"` // languages for symbol extraction
+	Remotes         map[string]RemoteConfig `yaml:"remotes"`          // SSH remote configurations
+}
+
+// RemoteConfig defines the SSH connection properties for a remote host.
+type RemoteConfig struct {
+	Host        string `yaml:"host"`         // Target hostname or user@host
+	Port        int    `yaml:"port"`         // SSH port (optional, defaults to 22 if 0)
+	AgentPath   string `yaml:"agent_path"`   // Path to btw-agent on remote (optional)
+	DefaultRoot string `yaml:"default_root"` // Default directory to walk on connect (optional)
 }
 
 // NewDefaultConfig returns a Config with sensible defaults.
