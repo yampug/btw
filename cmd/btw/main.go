@@ -32,7 +32,8 @@ func main() {
 	searchPath := flag.String("p", "", "search in a specific directory (default: cwd)")
 	searchPathLong := flag.String("path", "", "search in a specific directory (shorthand for -p)")
 	noColor := flag.Bool("no-color", false, "disable colors")
-	remoteHost := flag.String("remote", "", "connect to remote host over SSH")
+	remoteHostLong := flag.String("remote", "", "connect to remote host over SSH")
+	remoteHostShort := flag.String("r", "", "connect to remote host over SSH (shorthand)")
 	deployAgent := flag.Bool("deploy-agent", false, "deploy btw-agent to remote host")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	
@@ -72,18 +73,47 @@ func main() {
 		fmt.Fprintf(os.Stderr, "warning: error loading config: %v\n", err)
 	}
 
+	rawRemote := *remoteHostLong
+	if *remoteHostShort != "" {
+		rawRemote = *remoteHostShort
+	}
+
+	if rawRemote != "" && *searchPath != "" {
+		fmt.Fprintf(os.Stderr, "error: cannot use --path with --remote\n")
+		os.Exit(1)
+	}
+
+	var parsedHost, parsedPath string
+	if rawRemote != "" {
+		parts := strings.SplitN(rawRemote, ":", 2)
+		parsedHost = parts[0]
+		if len(parts) == 2 {
+			parsedPath = parts[1]
+		}
+	}
+
+	var isRemote bool
+	var remoteCfg config.RemoteConfig
+
+	if parsedHost != "" {
+		isRemote = true
+		rc, ok := cfg.Remotes[parsedHost]
+		if ok {
+			remoteCfg = rc
+		} else if strings.Contains(parsedHost, "@") || strings.Contains(parsedHost, ".") {
+			remoteCfg = config.RemoteConfig{Host: parsedHost}
+		} else {
+			fmt.Fprintf(os.Stderr, "error: remote not found: %s\n", parsedHost)
+			os.Exit(1)
+		}
+	}
+
 	if *deployAgent {
-		if *remoteHost == "" {
+		if !isRemote {
 			fmt.Fprintf(os.Stderr, "error: --deploy-agent requires --remote\n")
 			os.Exit(1)
 		}
 		
-		remoteCfg, ok := cfg.Remotes[*remoteHost]
-		if !ok {
-			fmt.Fprintf(os.Stderr, "error: remote not found: %s\n", *remoteHost)
-			os.Exit(1)
-		}
-
 		fmt.Printf("Deploying agent to %s...\n", remoteCfg.Host)
 		ctx := context.Background()
 		
@@ -116,17 +146,19 @@ func main() {
 		if flag.NArg() == 0 && *tabName == "all" {
 			return
 		}
-	} else if *remoteHost != "" {
-		_, ok := cfg.Remotes[*remoteHost]
-		if !ok {
-			fmt.Fprintf(os.Stderr, "error: remote not found: %s\n", *remoteHost)
-			os.Exit(1)
-		}
 	}
 
 	cwd, _ := os.Getwd()
 	root := cwd
-	if *searchPath != "" {
+	if isRemote {
+		if parsedPath != "" {
+			root = parsedPath
+		} else if remoteCfg.DefaultRoot != "" {
+			root = remoteCfg.DefaultRoot
+		} else {
+			root = "." // Fallback for remote
+		}
+	} else if *searchPath != "" {
 		root = *searchPath
 	}
 
@@ -162,9 +194,41 @@ func main() {
 		initState.ProjectOnly = &projOnly
 	}
 
-	idx := search.NewIndex()
-	idx.SetRoot(root)
-	// Non-blocking startup: Indexing is triggered in App.Init()
+	var idx *search.Index
+	// var sess *remote.Session // Pending Story 4.1 integration, we won't hold sess here yet if we don't need it.
+
+	if isRemote {
+		ctx := context.Background()
+		sessionCfg := remote.SessionConfig{
+			Host:      remoteCfg.Host,
+			Port:      remoteCfg.Port,
+			AgentPath: remoteCfg.AgentPath,
+		}
+		
+		fmt.Fprintf(os.Stderr, "Connecting to %s...\n", sessionCfg.Host)
+		sess, err := remote.Dial(ctx, sessionCfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error connecting to remote: %v\n", err)
+			os.Exit(1)
+		}
+		defer sess.Close()
+
+		// Verify connection
+		pingCtx, cancel := context.WithTimeout(ctx, 3*1000*1000*1000) // 3 seconds
+		err = sess.Ping(pingCtx)
+		cancel()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: agent not responding: %v. Try running with --deploy-agent\n", err)
+			os.Exit(1)
+		}
+
+		// For now, idx is nil when remote is used.
+		// Epic 4 will replace this with a DataSource interface.
+	} else {
+		idx = search.NewIndex()
+		idx.SetRoot(root)
+		// Non-blocking startup: Indexing is triggered in App.Init()
+	}
 
 	app := tui.NewApp(idx, cfg, initState)
 	p := tea.NewProgram(app, tea.WithAltScreen())
