@@ -139,7 +139,7 @@ func TestDataSource_Symbols_HappyPath(t *testing.T) {
 	path := filepath.Join(dir, "sym.go")
 	os.WriteFile(path, []byte("package test\ntype MySt struct {}\nfunc DoIt() {}\n"), 0o644)
 
-	entries := []search.FileEntry{{Path: path, IsRemote: true}}
+	entries := []search.FileEntry{{Path: path, RelPath: "sym.go", IsRemote: true}}
 	ctx := context.Background()
 	symbols := ds.ExtractSymbols(ctx, entries)
 
@@ -187,12 +187,12 @@ func TestDataSource_DetectRoot_ErrorCase(t *testing.T) {
 	ds, h := newTestRemoteDataSource(t)
 	defer h.stop()
 
-	root, err := ds.DetectRoot("/this/is/a/bad/path")
-	if err != nil {
-		t.Errorf("should default to bad path if completely broken: %v", err)
+	_, err := ds.DetectRoot("/this/is/a/bad/path")
+	if err == nil {
+		t.Errorf("expected error for nonexistent path")
 	}
-	if root != "/this/is/a/bad/path" {
-		t.Errorf("expected fallback to starting path, got %q", root)
+	if pe, ok := IsProtoError(err); !ok || pe.Code != ErrCodeNotFound {
+		t.Errorf("expected NotFound error, got %v", err)
 	}
 }
 
@@ -221,12 +221,12 @@ func TestDataSource_LoadIgnoreFiles_ErrorCase(t *testing.T) {
 	ds, h := newTestRemoteDataSource(t)
 	defer h.stop()
 
-	rules, err := ds.LoadIgnoreFiles("/not_a_dir")
-	if err != nil {
-		t.Errorf("unexpected error on missing dir: %v", err)
+	_, err := ds.LoadIgnoreFiles("/not_a_dir")
+	if err == nil {
+		t.Errorf("expected error on missing dir")
 	}
-	if rules.IsIgnored("anything", false) {
-		t.Errorf("expected nothing ignored for bad route")
+	if pe, ok := IsProtoError(err); !ok || pe.Code != ErrCodeNotFound {
+		t.Errorf("expected NotFound error, got %v", err)
 	}
 }
 

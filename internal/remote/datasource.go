@@ -219,9 +219,7 @@ func (r *RemoteDataSource) ExtractSymbols(ctx context.Context, files []search.Fi
 	first := files[0]
 	root := strings.TrimSuffix(first.Path, first.RelPath)
 	// Example: path="/foo/bar/a.go", rel="a.go" -> "/foo/bar/"
-	if strings.HasSuffix(root, "/") {
-		root = strings.TrimSuffix(root, "/")
-	}
+	root = strings.TrimSuffix(root, "/")
 
 	id := int(time.Now().UnixNano() % 100000)
 	p := SymbolsParams{Root: root}
